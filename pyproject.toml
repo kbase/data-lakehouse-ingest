@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dlh_ingest"
+version = "0.0.1"
+description = "Minimal ingestion stub for CDMHUB/BERDLHUB notebooks"
+authors = [{ name="CDM", email="amkhan@lbl.gov" }]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }

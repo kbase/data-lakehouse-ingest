@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-src/data_lakehouse_ingest/__init__.py
-src/data_lakehouse_ingest/core.py
-src/dlh_ingest.egg-info/PKG-INFO
-src/dlh_ingest.egg-info/SOURCES.txt
-src/dlh_ingest.egg-info/dependency_links.txt
-src/dlh_ingest.egg-info/top_level.txt
-tests/test_core.py

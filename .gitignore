@@ -7,3 +7,14 @@ __pycache__
 deploy.cfg
 .coverage
 test/test_temp/
+
+# Packaging artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo

@@ -1,6 +1,6 @@
 import json
 import tempfile
-from dlh_ingest import ingest_from_config
+from data_lakehouse_ingest import ingest_from_config
 
 def test_ingest_from_config_with_dict():
     cfg = {"input": {"uri": "s3a://bucket/path"}, "target": {"table": "demo"}}

@@ -7,3 +7,27 @@ __pycache__
 deploy.cfg
 .coverage
 test/test_temp/
+
+# Packaging artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Coverage & test artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Ruff cache
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/

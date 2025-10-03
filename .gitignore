@@ -18,3 +18,16 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+
+# Coverage & test artifacts
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# Ruff cache
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/

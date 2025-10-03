@@ -20,5 +20,4 @@ def ingest_from_config(config: Union[str, dict], spark=None) -> bool:
         _ = config
     else:
         raise TypeError("config must be a dict or a JSON file path string")
-    
     return True

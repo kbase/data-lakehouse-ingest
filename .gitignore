@@ -7,6 +7,8 @@ __pycache__
 deploy.cfg
 .coverage
 test/test_temp/
+src/data_lakehouse_ingest/minio_utils.py
+src/data_lakehouse_ingest/spark_session.py
 
 # Packaging artifacts
 *.egg-info/

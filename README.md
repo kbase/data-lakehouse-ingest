@@ -1,7 +1,8 @@
 # data\_lakehouse\_ingest
 
-Minimal ingestion stub for CDMHUB/BERDLHUB notebook integration.
-Exposes a stable entrypoint for ingestion so notebooks can integrate with a package now and swap in real logic later.
+End-to-end ingestion framework for CDMHUB / BERDLHUB notebook integration.
+
+It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies schema-based casting and validation (via LinkML or SQL-style schema), and writes curated Delta tables to a Spark-based Lakehouse.
 
 ---
 
@@ -10,7 +11,7 @@ Exposes a stable entrypoint for ingestion so notebooks can integrate with a pack
 This package uses [uv](https://docs.astral.sh/uv/) for Python environment and package management.
 See the [installation instructions](https://docs.astral.sh/uv/getting-started/installation/) to set up `uv` on your system.
 
-The package requires Python **3.12+**.
+The package requires Python **3.10+**.
 `uv` will download and manage Python automatically if your system Python is older.
 
 ---
@@ -36,18 +37,79 @@ source .venv/bin/activate
 
 ## Usage
 
-After activation, you can import the ingestion stub:
+The following example demonstrates a full ingestion workflow using Spark, MinIO, and LinkML schema integration.
 
 ```python
-from data_lakehouse_ingest import ingest_from_config
+from data_lakehouse_ingest import data_lakehouse_ingest_config
+from data_lakehouse_ingest.logger import setup_logger
+from data_lakehouse_ingest.config_loader import ConfigLoader
 
-# Either a dict…
-cfg = {"input": {"uri": "s3a://demo/path"}, "target": {"table": "demo"}}
-print(ingest_from_config(cfg))  # True
+# Initialize Spark and MinIO -- works on Jupyter Hub
+spark = get_spark_session()
+minio_client = get_minio_client()
 
-# …or a JSON file path
-print(ingest_from_config("/path/to/config.json"))  # True
+# Set up structured logger
+pipeline_name = "pangenome"
+target_table = "genome"
+schema = "pangenome"
+
+logger = setup_logger(
+    pipeline_name=pipeline_name,
+    target_table=target_table,
+    schema=schema
+)
+
+# Option 1: Load config from MinIO
+cfg_path = "s3a://test-bucket/data-load/config-json/pangenome_ke_genome.json"
+
+# Option 2: Inline JSON config
+cfg_path = r'''
+{
+  "tenant": "pangenome_${dataset}",
+  "dataset": "pangenome_linkml",
+  "paths": {
+    "data_plane": "s3a://test-bucket/",
+    "bronze_base": "s3a://test-bucket/pangenome_ke/bronze",
+    "silver_base": "s3a://test-bucket/pangenome_linkml/silver"
+  },
+  "defaults": {
+    "tsv": { "header": true, "delimiter": "\t", "inferSchema": false }
+  },
+  "tables": [
+    {
+      "name": "genome",
+      "linkml_schema": "s3a://test-bucket/data-load/linkml-schema/genome_schema.yml",
+      "schema_sql": null,
+      "partition_by": null,
+      "bronze_path": "s3a://test-bucket/pangenome_ke/bronze/table_genome_V1.1.tsv"
+    }
+  ]
+}
+'''
+
+# Run ingestion
+report = data_lakehouse_ingest_config(
+    cfg_path,
+    spark=spark,
+    logger=logger,
+    minio_client=minio_client
+)
+
+print(report)
+
 ```
+
+---
+
+## 🧠 How it works
+
+1. **ConfigLoader** reads the JSON config (inline or from MinIO).
+2. **Schema Parsing**: Determines schema from LinkML or `schema_sql`.
+3. **Spark Ingestion**: Reads files from the bronze layer using `spark.read`.
+4. **Validation**: Applies schema casting and structural validation.
+5. **Delta Write**: Writes curated data to the silver layer.
+6. **Logging**: All activities are logged with contextual metadata (pipeline, schema, table).
+
 
 ---
 
@@ -72,7 +134,7 @@ If you are using Jupyter in the same container:
 Now you can use:
 
 ```python
-from data_lakehouse_ingest import ingest_from_config
+from data_lakehouse_ingest import data_lakehouse_ingest_config
 ```
 
 directly inside notebooks.

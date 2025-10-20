@@ -9,46 +9,10 @@ from .config_loader import ConfigLoader
 from .logger import setup_logger
 from .utils.linkml_parser import load_linkml_schema
 
-
-# ----------------------------------------------------------------------
-# JSON loader helper
-# ----------------------------------------------------------------------
-def load_json_data(spark: SparkSession, path: str, logger: logging.Logger) -> DataFrame:
-    """Load newline-delimited JSON files into a DataFrame."""
-    logger.info(f"📂 Reading JSON data from: {path}")
-    try:
-        df = spark.read.option("multiLine", "false").json(path)
-        logger.info(f"   Loaded {df.count()} records from JSON at {path}")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Failed to load JSON: {e}", exc_info=True)
-        raise
-
-
-# ----------------------------------------------------------------------
-# XML loader helper
-# ----------------------------------------------------------------------
-def load_xml_data(spark: SparkSession, path: str, opts: Dict[str, Any], logger: logging.Logger) -> DataFrame:
-    """
-    Load XML files into a DataFrame using spark-xml.
-
-    Options:
-      - rowTag: name of the XML element to treat as a row (required)
-      - attributePrefix: prefix for attributes (optional)
-      - valueTag: name of the value tag (optional)
-    """
-    logger.info(f"📂 Reading XML data from: {path}")
-    try:
-        row_tag = opts.get("rowTag")
-        if not row_tag:
-            raise ValueError("XML reader requires a 'rowTag' option in config defaults or table definition.")
-
-        df = spark.read.format("xml").options(**opts).load(path)
-        logger.info(f"   Loaded {df.count()} XML records from {path} using rowTag='{row_tag}'")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Failed to load XML: {e}", exc_info=True)
-        raise
+from .loaders.json_loader import load_json_data
+from .loaders.xml_loader import load_xml_data
+from .loaders.csv_loader import load_csv_data
+from .loaders.tsv_loader import load_tsv_data
 
 
 # ----------------------------------------------------------------------
@@ -248,14 +212,40 @@ def data_lakehouse_ingest_config(
             logger.info(f"   Bronze: {bronze_path}")
             logger.info(f"   Silver: {silver_path}")
 
-            if fmt == "json":
-                df = load_json_data(spark, bronze_path, logger)
-            elif fmt == "xml":
-                df = load_xml_data(spark, bronze_path, opts, logger)
-            else:
-                spark_format = "csv" if fmt in ("csv", "tsv") else fmt
-                df = spark.read.options(**opts).format(spark_format).load(bronze_path)
-                logger.info(f"   Loaded {df.count()} records from {bronze_path}")
+            try:
+                if fmt == "json":
+                    df = load_json_data(spark, bronze_path, opts, logger)
+
+                elif fmt == "xml":
+                    df = load_xml_data(spark, bronze_path, opts, logger)
+
+                elif fmt == "csv":
+                    df = load_csv_data(spark, bronze_path, opts, logger)
+
+                elif fmt == "tsv":
+                    df = load_tsv_data(spark, bronze_path, opts, logger)
+
+                else:
+                    raise ValueError(f"❌ Unsupported file format '{fmt}' for table '{name}'")
+
+                rows_in = df.count()
+                logger.info(f"✅ Loaded {rows_in} records for table '{name}'")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to load data for table '{name}': {e}", exc_info=True)
+                error_entry = {
+                    "name": name,
+                    "error": str(e),
+                    "phase": "data_loading",
+                    "bronze_path": bronze_path,
+                    "format": fmt,
+                    "status": "failed"
+                }
+                table_reports.append(error_entry)
+                error_list.append(error_entry)
+                # skip rest of the loop for this table
+                continue
+
 
             rows_in = df.count()
 

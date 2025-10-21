@@ -9,6 +9,7 @@ deploy.cfg
 test/test_temp/
 !src/data_lakehouse_ingest/minio_utils.py
 !src/data_lakehouse_ingest/spark_session.py
+config-json/
 
 # Packaging artifacts
 *.egg-info/

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from minio import Minio 
 from typing import Union, Dict, Any
 from datetime import datetime
 from pyspark.sql import SparkSession, DataFrame
@@ -22,11 +23,11 @@ from .loaders.dsv_loader import load_dsv_data, load_csv_data, load_tsv_data
 # Main function
 # ----------------------------------------------------------------------
 def data_lakehouse_ingest_config(
-    config: Union[str, Dict[str, Any]],
-    spark: SparkSession = None,
-    logger: logging.Logger = None,
-    minio_client: Any = None
-) -> Dict[str, Any]:
+    config: str | dict[str, Any],
+    spark: SparkSession | None = None,
+    logger: logging.Logger | None = None,
+    minio_client: Minio | None = None,
+) -> dict[str, Any]:
     """
     Data Lakehouse Ingest MVP (CSV/TSV/JSON/XML)
     --------------------------------------------

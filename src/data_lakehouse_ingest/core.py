@@ -1,3 +1,5 @@
+# src/data_lakehouse_ingest/core.py
+
 import json
 import logging
 from typing import Union, Dict, Any
@@ -11,8 +13,8 @@ from .utils.linkml_parser import load_linkml_schema
 
 from .loaders.json_loader import load_json_data
 from .loaders.xml_loader import load_xml_data
-from .loaders.csv_loader import load_csv_data
-from .loaders.tsv_loader import load_tsv_data
+from .loaders.dsv_loader import load_dsv_data, load_csv_data, load_tsv_data
+
 
 
 # ----------------------------------------------------------------------
@@ -213,25 +215,28 @@ def data_lakehouse_ingest_config(
             logger.info(f"   Silver: {silver_path}")
 
             try:
-                if fmt == "json":
-                    df = load_json_data(spark, bronze_path, opts, logger)
+                # Map format names to their corresponding loader functions
+                fmt_to_loader = {
+                    "json": load_json_data,
+                    "xml": load_xml_data,
+                    "csv": load_csv_data,
+                    "tsv": load_tsv_data,
+                }
 
-                elif fmt == "xml":
-                    df = load_xml_data(spark, bronze_path, opts, logger)
-
-                elif fmt == "csv":
-                    df = load_csv_data(spark, bronze_path, opts, logger)
-
-                elif fmt == "tsv":
-                    df = load_tsv_data(spark, bronze_path, opts, logger)
-
-                else:
+                # Check if the format is supported
+                if fmt not in fmt_to_loader:
                     raise ValueError(f"❌ Unsupported file format '{fmt}' for table '{name}'")
 
+                # Retrieve and call the correct loader function dynamically
+                loader_fn = fmt_to_loader[fmt]
+                df = loader_fn(spark, bronze_path, opts, logger)
+
+                # Log and count successfully loaded records
                 rows_in = df.count()
                 logger.info(f"✅ Loaded {rows_in} records for table '{name}'")
 
             except Exception as e:
+                # Log errors with detailed context
                 logger.error(f"❌ Failed to load data for table '{name}': {e}", exc_info=True)
                 error_entry = {
                     "name": name,
@@ -243,8 +248,8 @@ def data_lakehouse_ingest_config(
                 }
                 table_reports.append(error_entry)
                 error_list.append(error_entry)
-                # skip rest of the loop for this table
-                continue
+                continue  # skip rest of the loop for this table
+
 
 
             rows_in = df.count()

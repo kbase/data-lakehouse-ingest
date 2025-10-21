@@ -10,6 +10,7 @@ from pyspark.sql.utils import AnalysisException
 from .config_loader import ConfigLoader
 from .logger import setup_logger
 from .utils.linkml_parser import load_linkml_schema
+from .utils.report_utils import generate_report
 
 from .loaders.json_loader import load_json_data
 from .loaders.xml_loader import load_xml_data
@@ -43,25 +44,13 @@ def data_lakehouse_ingest_config(
         logger_error = logger or logging.getLogger("data_lakehouse_ingest")
         logger_error.error(error_msg)
 
-        ended_at = datetime.utcnow().isoformat() + "Z"
-        duration_sec = (
-            datetime.fromisoformat(ended_at.replace("Z", "")) -
-            datetime.fromisoformat(started_at.replace("Z", ""))
-        ).total_seconds()
+        report = generate_report(
+            success=False,
+            started_at=started_at,
+            tables=[],
+            errors=[{"phase": "spark_initialization", "error": error_msg}]
+        )
 
-        report = {
-            "success": False,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_sec": duration_sec,
-            "tables": [],
-            "errors": [
-                {
-                    "phase": "spark_initialization",
-                    "error": error_msg
-                }
-            ]
-        }
         logger_error.info("🏁 Ingestion terminated during Spark session check")
         logger_error.info(json.dumps(report, indent=2))
         return report
@@ -80,24 +69,14 @@ def data_lakehouse_ingest_config(
         loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
     except Exception as e:
         logger.error(f"❌ Failed to load or validate configuration: {e}", exc_info=True)
-        ended_at = datetime.utcnow().isoformat() + "Z"
-        duration_sec = (
-            datetime.fromisoformat(ended_at.replace("Z", "")) -
-            datetime.fromisoformat(started_at.replace("Z", ""))
-        ).total_seconds()
-        report = {
-            "success": False,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_sec": duration_sec,
-            "tables": [],
-            "errors": [
-                {
-                    "phase": "config_validation",
-                    "error": str(e)
-                }
-            ]
-        }
+
+        report = generate_report(
+            success=False,
+            started_at=started_at,
+            tables=[],
+            errors=[{"phase": "config_validation", "error": str(e)}]
+        )
+
         logger.info("🏁 Ingestion terminated during config validation")
         logger.info(json.dumps(report, indent=2))
         return report
@@ -320,20 +299,12 @@ def data_lakehouse_ingest_config(
     # ----------------------------------------------------------------------
     # Final report
     # ----------------------------------------------------------------------
-    ended_at = datetime.utcnow().isoformat() + "Z"
-    duration_sec = (
-        datetime.fromisoformat(ended_at.replace("Z", "")) -
-        datetime.fromisoformat(started_at.replace("Z", ""))
-    ).total_seconds()
-
-    report = {
-        "success": all(t["status"] == "success" for t in table_reports),
-        "started_at": started_at,
-        "ended_at": ended_at,
-        "duration_sec": duration_sec,
-        "tables": table_reports,
-        "errors": error_list,
-    }
+    report = generate_report(
+        success=all(t.get("status") == "success" for t in table_reports),
+        started_at=started_at,
+        tables=table_reports,
+        errors=error_list
+    )
 
     logger.info("🏁 Ingestion complete")
     logger.info(json.dumps(report, indent=2))

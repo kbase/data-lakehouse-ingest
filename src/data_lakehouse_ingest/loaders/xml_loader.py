@@ -26,7 +26,9 @@ def load_xml_data(spark: SparkSession, path: str, opts: dict, logger: logging.Lo
     # Ensure 'rowTag' is provided — spark-xml requires this to define the row structure
     row_tag = opts.get("rowTag")
     if not row_tag:
+        logger.error("❌ Missing 'rowTag' for XML loader.")
         raise ValueError("XML reader requires a 'rowTag' option in config defaults or table definition.")
+
     try:
         # Read XML files using spark-xml and provided options
         df = spark.read.format("xml").options(**opts).load(path)

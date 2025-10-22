@@ -18,6 +18,12 @@ from .loaders.xml_loader import load_xml_data
 from .loaders.dsv_loader import load_dsv_data, load_csv_data, load_tsv_data
 
 
+def safe_log_json(logger, data):
+    """Safely log dicts containing mock or non-serializable objects."""
+    try:
+        logger.info(json.dumps(data, indent=2, default=str))
+    except Exception:
+        logger.info(str(data))
 
 # ----------------------------------------------------------------------
 # Main function
@@ -79,7 +85,7 @@ def data_lakehouse_ingest_config(
         )
 
         logger.info("🏁 Ingestion terminated during config validation")
-        logger.info(json.dumps(report, indent=2))
+        safe_log_json(logger, report)
         return report
 
     tenant = loader.get_tenant()
@@ -102,6 +108,9 @@ def data_lakehouse_ingest_config(
         name = table["name"]
         bronze_path = loader.get_bronze_path(name)
         silver_path = loader.get_silver_path(name)
+
+        print("bronze_path", bronze_path)
+        print("silver_path", silver_path)
 
         # Special handling: delegate to parser if process_with is defined
         if table.get("process_with") == "uniprot":
@@ -308,5 +317,5 @@ def data_lakehouse_ingest_config(
     )
 
     logger.info("🏁 Ingestion complete")
-    logger.info(json.dumps(report, indent=2))
+    safe_log_json(logger, report)
     return report

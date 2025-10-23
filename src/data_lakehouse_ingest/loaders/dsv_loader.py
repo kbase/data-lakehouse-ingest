@@ -35,13 +35,14 @@ def load_dsv_data(
 
     logger.info(f"📂 Reading {format_name} data from: {path}")
 
+    # Ensure opts is a valid mapping
+    if opts is None:
+        opts = {}
+
+    # Merge user-provided options with enforced delimiter (creates a new dict)
+    spark_opts = {**opts, "delimiter": delimiter}
+
     try:
-        # Copy opts to avoid mutating caller-provided options
-        opts = opts.copy()
-
-        # Enforce the specified delimiter in Spark options
-        opts["delimiter"] = delimiter
-
         # Use Spark’s CSV reader for all DSV formats (CSV/TSV/etc.)
         df = spark.read.options(**opts).format("csv").load(path)
 

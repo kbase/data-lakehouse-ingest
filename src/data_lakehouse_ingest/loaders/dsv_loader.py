@@ -44,7 +44,7 @@ def load_dsv_data(
 
     try:
         # Use Spark’s CSV reader for all DSV formats (CSV/TSV/etc.)
-        df = spark.read.options(**opts).format("csv").load(path)
+        df = spark.read.options(**spark_opts).format("csv").load(path)
 
         # Count and log how many records were successfully loaded
         record_count = df.count()

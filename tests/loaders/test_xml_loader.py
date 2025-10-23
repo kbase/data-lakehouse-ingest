@@ -1,16 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
 from data_lakehouse_ingest.loaders.xml_loader import load_xml_data
-
-@pytest.fixture
-def mock_spark():
-    spark = MagicMock()
-    spark.read.format.return_value.options.return_value.load.return_value.count.return_value = 2
-    return spark
-
-@pytest.fixture
-def mock_logger():
-    return MagicMock()
 
 def test_load_xml_data_success(mock_spark, mock_logger):
     opts = {"rowTag": "record"}

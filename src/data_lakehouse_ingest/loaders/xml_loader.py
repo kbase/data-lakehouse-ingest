@@ -32,7 +32,7 @@ def load_xml_data(spark: SparkSession, path: str, opts: dict, logger: logging.Lo
     try:
         # Read XML files using spark-xml and provided options
         df = spark.read.format("xml").options(**opts).load(path)
-        
+
         # Count and log the number of records read successfully
         record_count = df.count()
         logger.info(f"✅ Loaded {record_count} XML records using rowTag='{row_tag}'")

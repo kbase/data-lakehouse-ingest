@@ -1,29 +1,28 @@
-# src/data_lakehouse_ingest/core.py
+"""
+File name: src/data_lakehouse_ingest/core.py
+
+Core orchestration module for the Data Lakehouse Ingest framework.
+Executes config-driven ingestion from Bronze (raw) to Silver (curated) Delta tables.
+Handles schema enforcement (SQL/LinkML), multi-format loading, and report generation.
+"""
 
 import json
 import logging
-from minio import Minio 
-from typing import Union, Dict, Any
-from datetime import datetime
-from pyspark.sql import SparkSession, DataFrame
+from minio import Minio
+from typing import Any
+from datetime import datetime, timezone
+from pyspark.sql import SparkSession
 from pyspark.sql.utils import AnalysisException
 
 from .config_loader import ConfigLoader
-from .logger import setup_logger
+from .logger import safe_log_json
 from .utils.linkml_parser import load_linkml_schema
 from .utils.report_utils import generate_report
 
 from .loaders.json_loader import load_json_data
 from .loaders.xml_loader import load_xml_data
-from .loaders.dsv_loader import load_dsv_data, load_csv_data, load_tsv_data
+from .loaders.dsv_loader import load_csv_data, load_tsv_data
 
-
-def safe_log_json(logger, data):
-    """Safely log dicts containing mock or non-serializable objects."""
-    try:
-        logger.info(json.dumps(data, indent=2, default=str))
-    except Exception:
-        logger.info(str(data))
 
 # ----------------------------------------------------------------------
 # Main function
@@ -35,12 +34,27 @@ def data_lakehouse_ingest_config(
     minio_client: Minio | None = None,
 ) -> dict[str, Any]:
     """
-    Data Lakehouse Ingest MVP (CSV/TSV/JSON/XML)
-    --------------------------------------------
-    Reads configuration (inline dict, local JSON, or s3a:// path),
-    loads Bronze data, and writes Delta tables into corresponding Silver paths.
+    Orchestrates the end-to-end data ingestion process defined by a configuration.
+
+    Loads raw (Bronze) data from local or S3/MinIO sources, applies schema enforcement
+    (SQL or LinkML-based), and writes curated (Silver) Delta tables. Generates a
+    structured report summarizing table-level outcomes and errors.
+
+    Args:
+        config (str | dict[str, Any]): Path to the config file (local or s3a://) or an inline config dictionary.
+        spark (SparkSession, optional): Active Spark session used for reading and writing data.
+        logger (logging.Logger, optional): Logger instance for structured logging.
+        minio_client (Minio, optional): MinIO client used to read configuration or data from S3-compatible sources.
+
+    Returns:
+        dict[str, Any]: A structured ingestion report containing status, errors, and table-level metrics.
+
+    Notes:
+        - SparkSession must be provided by the caller.
+        - Supports multiple file formats (CSV, TSV, JSON, XML).
+        - Each table in the configuration is processed independently.
     """
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = datetime.now(timezone.utc).isoformat()
 
     # --- Spark Session ---
     if spark is None:
@@ -70,8 +84,6 @@ def data_lakehouse_ingest_config(
         logger.info("No external logger provided; using internal basic logger.")
 
     # --- Config Loader ---
-    #loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
-
     try:
         loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
     except Exception as e:
@@ -117,14 +129,14 @@ def data_lakehouse_ingest_config(
             from .parsers.uniprot_ingest import process_uniprot_to_delta
             logger.info(f"🚀 Delegating to UniProt ingestion pipeline for table: {name}")
 
-            start_table_time = datetime.utcnow()
+            start_table_time = datetime.now(timezone.utc)
             process_uniprot_to_delta(
                 xml_path=bronze_path,
                 namespace=tenant,
                 s3_silver_base=silver_path,
                 batch_size=table.get("batch_size", 5000)
             )
-            elapsed_sec = (datetime.utcnow() - start_table_time).total_seconds()
+            elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
             # Optional: you can retrieve counts from Delta after ingestion
             try:
@@ -152,8 +164,8 @@ def data_lakehouse_ingest_config(
             })
 
             continue  # skip default CSV/TSV/JSON ingestion path
-            
-        start_table_time = datetime.utcnow()
+
+        start_table_time = datetime.now(timezone.utc)
 
         try:
             # --- Determine format ---
@@ -194,7 +206,7 @@ def data_lakehouse_ingest_config(
                 opts = loader.get_defaults_for(fmt)
             else:
                 opts = format_defaults.get(fmt, {"header": True, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False})
-            
+
             opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
             opts["recursiveFileLookup"] = "true"
 
@@ -272,7 +284,7 @@ def data_lakehouse_ingest_config(
             rows_rejected = 0  # To be filled by DQ checks later
             partitions_written = None  # Could be obtained via Delta metadata
             quarantine_path = f"{silver_path}/quarantine/{started_at.replace(':', '-')}/"
-            elapsed_sec = (datetime.utcnow() - start_table_time).total_seconds()
+            elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
             logger.info(f"✅ Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 

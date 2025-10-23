@@ -1,15 +1,20 @@
-# src/data_lakehouse_ingest/utils/report_utils.py
+"""
+File name: src/data_lakehouse_ingest/utils/report_utils.py
 
-from datetime import datetime
-from typing import Dict, Any, List
+Generates structured ingestion reports summarizing pipeline execution.
+Computes duration, status, and per-table results with optional error and extra context.
+"""
+
+from datetime import datetime, timezone
+from typing import Any
 
 def generate_report(
-    success: bool,
-    started_at: str,
-    tables: List[Dict[str, Any]],
-    errors: List[Dict[str, Any]] = None,
-    extra: Dict[str, Any] = None
-) -> Dict[str, Any]:
+    success: bool = True,
+    started_at: str | None = None,
+    tables: list[dict[str, Any]] | None = None,
+    errors: list[dict[str, Any]] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Generate a consistent ingestion report structure.
 
@@ -23,10 +28,11 @@ def generate_report(
     Returns:
         dict: Structured ingestion report.
     """
-    ended_at = datetime.utcnow().isoformat() + "Z"
+    started_at = started_at or datetime.now(timezone.utc).isoformat()
+    ended_at = datetime.now(timezone.utc).isoformat()
     duration_sec = (
-        datetime.fromisoformat(ended_at.replace("Z", "")) -
-        datetime.fromisoformat(started_at.replace("Z", ""))
+        datetime.fromisoformat(ended_at) -
+        datetime.fromisoformat(started_at)
     ).total_seconds()
 
     report = {

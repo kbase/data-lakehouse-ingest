@@ -1,4 +1,11 @@
-# src/logger.py
+"""
+File name: src/logger.py
+
+Provides structured logging with contextual metadata for Data Lakehouse Ingest pipelines.
+Supports console and file output with JSON-formatted log entries.
+"""
+
+import json
 import logging
 import os
 import sys
@@ -58,7 +65,7 @@ def setup_logger(
     except Exception as e:
         raise OSError(f"Failed to create log directory '{log_dir}': {e}")
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().isoformat(timespec="seconds").replace(":", "-")
     log_file = os.path.join(log_dir, f"pipeline_run_{timestamp}.log")
 
     # Always get the same logger by name
@@ -101,3 +108,20 @@ def setup_logger(
     except Exception as e:
         raise RuntimeError(f"Failed to set up logger '{logger_name}': {e}")
 
+
+
+def safe_log_json(logger: logging.Logger, data: object) -> None:
+    """
+    Safely log dictionaries or objects that may contain non-serializable elements.
+
+    Ensures structured logging remains readable even if some values cannot
+    be JSON-encoded (e.g., Spark objects, datetime, custom classes).
+
+    Args:
+        logger (logging.Logger): Logger instance to use for logging.
+        data (object): Data to be serialized and logged.
+    """
+    try:
+        logger.info(json.dumps(data, indent=2, default=str))
+    except Exception:
+        logger.info(str(data))

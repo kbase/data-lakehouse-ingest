@@ -1,72 +1,60 @@
+"""
+File name: src/data_lakehouse_ingest/core.py
+
+Core orchestration module for the Data Lakehouse Ingest framework.
+Executes config-driven ingestion from Bronze (raw) to Silver (curated) Delta tables.
+Handles schema enforcement (SQL/LinkML), multi-format loading, and report generation.
+"""
+
 import json
 import logging
-from typing import Union, Dict, Any
-from datetime import datetime
-from pyspark.sql import SparkSession, DataFrame
+from minio import Minio
+from typing import Any
+from datetime import datetime, timezone
+from pyspark.sql import SparkSession
 from pyspark.sql.utils import AnalysisException
 
 from .config_loader import ConfigLoader
-from .logger import setup_logger
+from .logger import safe_log_json
 from .utils.linkml_parser import load_linkml_schema
+from .utils.report_utils import generate_report
 
-
-# ----------------------------------------------------------------------
-# JSON loader helper
-# ----------------------------------------------------------------------
-def load_json_data(spark: SparkSession, path: str, logger: logging.Logger) -> DataFrame:
-    """Load newline-delimited JSON files into a DataFrame."""
-    logger.info(f"📂 Reading JSON data from: {path}")
-    try:
-        df = spark.read.option("multiLine", "false").json(path)
-        logger.info(f"   Loaded {df.count()} records from JSON at {path}")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Failed to load JSON: {e}", exc_info=True)
-        raise
-
-
-# ----------------------------------------------------------------------
-# XML loader helper
-# ----------------------------------------------------------------------
-def load_xml_data(spark: SparkSession, path: str, opts: Dict[str, Any], logger: logging.Logger) -> DataFrame:
-    """
-    Load XML files into a DataFrame using spark-xml.
-
-    Options:
-      - rowTag: name of the XML element to treat as a row (required)
-      - attributePrefix: prefix for attributes (optional)
-      - valueTag: name of the value tag (optional)
-    """
-    logger.info(f"📂 Reading XML data from: {path}")
-    try:
-        row_tag = opts.get("rowTag")
-        if not row_tag:
-            raise ValueError("XML reader requires a 'rowTag' option in config defaults or table definition.")
-
-        df = spark.read.format("xml").options(**opts).load(path)
-        logger.info(f"   Loaded {df.count()} XML records from {path} using rowTag='{row_tag}'")
-        return df
-    except Exception as e:
-        logger.error(f"❌ Failed to load XML: {e}", exc_info=True)
-        raise
+from .loaders.json_loader import load_json_data
+from .loaders.xml_loader import load_xml_data
+from .loaders.dsv_loader import load_csv_data, load_tsv_data
 
 
 # ----------------------------------------------------------------------
 # Main function
 # ----------------------------------------------------------------------
 def data_lakehouse_ingest_config(
-    config: Union[str, Dict[str, Any]],
-    spark: SparkSession = None,
-    logger: logging.Logger = None,
-    minio_client: Any = None
-) -> Dict[str, Any]:
+    config: str | dict[str, Any],
+    spark: SparkSession | None = None,
+    logger: logging.Logger | None = None,
+    minio_client: Minio | None = None,
+) -> dict[str, Any]:
     """
-    Data Lakehouse Ingest MVP (CSV/TSV/JSON/XML)
-    --------------------------------------------
-    Reads configuration (inline dict, local JSON, or s3a:// path),
-    loads Bronze data, and writes Delta tables into corresponding Silver paths.
+    Orchestrates the end-to-end data ingestion process defined by a configuration.
+
+    Loads raw (Bronze) data from local or S3/MinIO sources, applies schema enforcement
+    (SQL or LinkML-based), and writes curated (Silver) Delta tables. Generates a
+    structured report summarizing table-level outcomes and errors.
+
+    Args:
+        config (str | dict[str, Any]): Path to the config file (local or s3a://) or an inline config dictionary.
+        spark (SparkSession, optional): Active Spark session used for reading and writing data.
+        logger (logging.Logger, optional): Logger instance for structured logging.
+        minio_client (Minio, optional): MinIO client used to read configuration or data from S3-compatible sources.
+
+    Returns:
+        dict[str, Any]: A structured ingestion report containing status, errors, and table-level metrics.
+
+    Notes:
+        - SparkSession must be provided by the caller.
+        - Supports multiple file formats (CSV, TSV, JSON, XML).
+        - Each table in the configuration is processed independently.
     """
-    started_at = datetime.utcnow().isoformat() + "Z"
+    started_at = datetime.now(timezone.utc).isoformat()
 
     # --- Spark Session ---
     if spark is None:
@@ -77,25 +65,13 @@ def data_lakehouse_ingest_config(
         logger_error = logger or logging.getLogger("data_lakehouse_ingest")
         logger_error.error(error_msg)
 
-        ended_at = datetime.utcnow().isoformat() + "Z"
-        duration_sec = (
-            datetime.fromisoformat(ended_at.replace("Z", "")) -
-            datetime.fromisoformat(started_at.replace("Z", ""))
-        ).total_seconds()
+        report = generate_report(
+            success=False,
+            started_at=started_at,
+            tables=[],
+            errors=[{"phase": "spark_initialization", "error": error_msg}]
+        )
 
-        report = {
-            "success": False,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_sec": duration_sec,
-            "tables": [],
-            "errors": [
-                {
-                    "phase": "spark_initialization",
-                    "error": error_msg
-                }
-            ]
-        }
         logger_error.info("🏁 Ingestion terminated during Spark session check")
         logger_error.info(json.dumps(report, indent=2))
         return report
@@ -108,32 +84,20 @@ def data_lakehouse_ingest_config(
         logger.info("No external logger provided; using internal basic logger.")
 
     # --- Config Loader ---
-    #loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
-
     try:
         loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
     except Exception as e:
         logger.error(f"❌ Failed to load or validate configuration: {e}", exc_info=True)
-        ended_at = datetime.utcnow().isoformat() + "Z"
-        duration_sec = (
-            datetime.fromisoformat(ended_at.replace("Z", "")) -
-            datetime.fromisoformat(started_at.replace("Z", ""))
-        ).total_seconds()
-        report = {
-            "success": False,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "duration_sec": duration_sec,
-            "tables": [],
-            "errors": [
-                {
-                    "phase": "config_validation",
-                    "error": str(e)
-                }
-            ]
-        }
+
+        report = generate_report(
+            success=False,
+            started_at=started_at,
+            tables=[],
+            errors=[{"phase": "config_validation", "error": str(e)}]
+        )
+
         logger.info("🏁 Ingestion terminated during config validation")
-        logger.info(json.dumps(report, indent=2))
+        safe_log_json(logger, report)
         return report
 
     tenant = loader.get_tenant()
@@ -157,19 +121,22 @@ def data_lakehouse_ingest_config(
         bronze_path = loader.get_bronze_path(name)
         silver_path = loader.get_silver_path(name)
 
+        print("bronze_path", bronze_path)
+        print("silver_path", silver_path)
+
         # Special handling: delegate to parser if process_with is defined
         if table.get("process_with") == "uniprot":
             from .parsers.uniprot_ingest import process_uniprot_to_delta
             logger.info(f"🚀 Delegating to UniProt ingestion pipeline for table: {name}")
 
-            start_table_time = datetime.utcnow()
+            start_table_time = datetime.now(timezone.utc)
             process_uniprot_to_delta(
                 xml_path=bronze_path,
                 namespace=tenant,
                 s3_silver_base=silver_path,
                 batch_size=table.get("batch_size", 5000)
             )
-            elapsed_sec = (datetime.utcnow() - start_table_time).total_seconds()
+            elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
             # Optional: you can retrieve counts from Delta after ingestion
             try:
@@ -197,8 +164,8 @@ def data_lakehouse_ingest_config(
             })
 
             continue  # skip default CSV/TSV/JSON ingestion path
-            
-        start_table_time = datetime.utcnow()
+
+        start_table_time = datetime.now(timezone.utc)
 
         try:
             # --- Determine format ---
@@ -239,7 +206,7 @@ def data_lakehouse_ingest_config(
                 opts = loader.get_defaults_for(fmt)
             else:
                 opts = format_defaults.get(fmt, {"header": True, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False})
-            
+
             opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
             opts["recursiveFileLookup"] = "true"
 
@@ -248,14 +215,43 @@ def data_lakehouse_ingest_config(
             logger.info(f"   Bronze: {bronze_path}")
             logger.info(f"   Silver: {silver_path}")
 
-            if fmt == "json":
-                df = load_json_data(spark, bronze_path, logger)
-            elif fmt == "xml":
-                df = load_xml_data(spark, bronze_path, opts, logger)
-            else:
-                spark_format = "csv" if fmt in ("csv", "tsv") else fmt
-                df = spark.read.options(**opts).format(spark_format).load(bronze_path)
-                logger.info(f"   Loaded {df.count()} records from {bronze_path}")
+            try:
+                # Map format names to their corresponding loader functions
+                fmt_to_loader = {
+                    "json": load_json_data,
+                    "xml": load_xml_data,
+                    "csv": load_csv_data,
+                    "tsv": load_tsv_data,
+                }
+
+                # Check if the format is supported
+                if fmt not in fmt_to_loader:
+                    raise ValueError(f"❌ Unsupported file format '{fmt}' for table '{name}'")
+
+                # Retrieve and call the correct loader function dynamically
+                loader_fn = fmt_to_loader[fmt]
+                df = loader_fn(spark, bronze_path, opts, logger)
+
+                # Log and count successfully loaded records
+                rows_in = df.count()
+                logger.info(f"✅ Loaded {rows_in} records for table '{name}'")
+
+            except Exception as e:
+                # Log errors with detailed context
+                logger.error(f"❌ Failed to load data for table '{name}': {e}", exc_info=True)
+                error_entry = {
+                    "name": name,
+                    "error": str(e),
+                    "phase": "data_loading",
+                    "bronze_path": bronze_path,
+                    "format": fmt,
+                    "status": "failed"
+                }
+                table_reports.append(error_entry)
+                error_list.append(error_entry)
+                continue  # skip rest of the loop for this table
+
+
 
             rows_in = df.count()
 
@@ -288,7 +284,7 @@ def data_lakehouse_ingest_config(
             rows_rejected = 0  # To be filled by DQ checks later
             partitions_written = None  # Could be obtained via Delta metadata
             quarantine_path = f"{silver_path}/quarantine/{started_at.replace(':', '-')}/"
-            elapsed_sec = (datetime.utcnow() - start_table_time).total_seconds()
+            elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
             logger.info(f"✅ Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
@@ -325,21 +321,13 @@ def data_lakehouse_ingest_config(
     # ----------------------------------------------------------------------
     # Final report
     # ----------------------------------------------------------------------
-    ended_at = datetime.utcnow().isoformat() + "Z"
-    duration_sec = (
-        datetime.fromisoformat(ended_at.replace("Z", "")) -
-        datetime.fromisoformat(started_at.replace("Z", ""))
-    ).total_seconds()
-
-    report = {
-        "success": all(t["status"] == "success" for t in table_reports),
-        "started_at": started_at,
-        "ended_at": ended_at,
-        "duration_sec": duration_sec,
-        "tables": table_reports,
-        "errors": error_list,
-    }
+    report = generate_report(
+        success=all(t.get("status") == "success" for t in table_reports),
+        started_at=started_at,
+        tables=table_reports,
+        errors=error_list
+    )
 
     logger.info("🏁 Ingestion complete")
-    logger.info(json.dumps(report, indent=2))
+    safe_log_json(logger, report)
     return report

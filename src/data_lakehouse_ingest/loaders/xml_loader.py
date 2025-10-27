@@ -1,4 +1,12 @@
-# src/data_lakehouse_ingest/loaders/xml_loader.py
+"""
+File: src/data_lakehouse_ingest/loaders/xml_loader.py
+
+Purpose:
+    Provides functionality to load XML data files into Spark DataFrames
+    using the spark-xml library. Supports configurable options such as
+    'rowTag' to define the XML record structure, with structured logging
+    for validation, progress tracking, and error handling.
+"""
 
 import logging
 from pyspark.sql import SparkSession, DataFrame

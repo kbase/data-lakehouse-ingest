@@ -1,4 +1,11 @@
-# src/data_lakehouse_ingest/loaders/dsv.py
+"""
+File: src/data_lakehouse_ingest/loaders/dsv.py
+
+Purpose:
+    Provides functions to load Delimiter-Separated Values (DSV) files into Spark DataFrames.
+    Supports CSV, TSV, and custom-delimited formats using Spark’s CSV reader, with structured logging.
+"""
+
 
 import logging
 from pyspark.sql import SparkSession, DataFrame

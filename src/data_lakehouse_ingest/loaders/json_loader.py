@@ -1,4 +1,11 @@
-# src/data_lakehouse_ingest/loaders/json_loader.py
+"""
+File: src/data_lakehouse_ingest/loaders/json_loader.py
+
+Purpose:
+    Provides functionality to load JSON data files into Spark DataFrames.
+    Supports newline-delimited JSON records with configurable reader options
+    and structured logging for traceability and error handling.
+"""
 
 import logging
 from pyspark.sql import SparkSession, DataFrame

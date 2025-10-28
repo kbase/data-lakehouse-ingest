@@ -19,9 +19,9 @@ def generate_report(
     Generate a consistent ingestion report structure.
 
     Args:
-        success (bool): Whether the operation succeeded overall.
-        started_at (str): ISO timestamp when the operation started.
-        tables (list): List of table-level report dictionaries.
+        success (bool, defaults to True): Whether the operation succeeded overall.
+        started_at (str, optional): ISO timestamp when the operation started.
+        tables (list, optional): List of table-level report dictionaries.
         errors (list, optional): List of error entries with 'phase', 'error', etc.
         extra (dict, optional): Additional key-value pairs to merge (e.g., for partial errors).
 

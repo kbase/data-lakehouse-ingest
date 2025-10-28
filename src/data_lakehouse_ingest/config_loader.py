@@ -1,7 +1,20 @@
-# src/data_lakehouse_ingest/config_loader.py
+"""
+File: src/data_lakehouse_ingest/config_loader.py
+
+Purpose:
+    Provides a configuration loader for the Data Lakehouse Ingest framework.
+    Supports reading configuration from:
+      - Local JSON file
+      - Inline JSON string
+      - MinIO object storage (s3a://bucket/key)
+
+    Performs validation of minimal required fields, applies defensive checks
+    (e.g., path traversal prevention), and exposes convenient accessors for
+    tenant, dataset, paths, and per-table definitions.
+"""
 
 from __future__ import annotations
-from typing import Optional, Dict, Any, List, Union
+from typing import Any
 import json
 import logging
 import os
@@ -10,20 +23,37 @@ from pathlib import Path
 
 class ConfigLoader:
     """
-    ConfigLoader for minimal data-lakehouse ingestion configuration.
+    ConfigLoader is responsible for safely loading and validating ingestion
+    configuration files used by the Data Lakehouse Ingest framework.
 
-    Supports loading from:
-      - Local file path
-      - Inline JSON string
-      - MinIO (s3a://bucket/key)
+    It can load configurations from:
+      - Local JSON files (with path traversal protection)
+      - Inline JSON strings
+      - MinIO object storage (via s3a:// paths)
+
+    Attributes:
+        config (dict[str, Any]): The parsed configuration dictionary.
+        logger (logging.Logger): The logger instance for structured logging.
+        minio_client (Any): Optional MinIO client for accessing remote configs.
     """
 
     def __init__(
         self,
-        cfg: Union[str, Dict[str, Any]],
-        logger: Optional[logging.Logger] = None,
-        minio_client: Optional[Any] = None,
+        cfg: str | dict[str, Any],
+        logger: logging.Logger | None = None,
+        minio_client: Any | None = None,
     ):
+        """
+        Initialize ConfigLoader.
+
+        Args:
+            cfg (str | dict[str, Any]): Path, inline JSON, or dict representing the configuration.
+            logger (logging.Logger | None): Optional logger instance.
+            minio_client (Any | None): MinIO client (required for s3a:// paths).
+
+        Raises:
+            ValueError: If MinIO client is missing for s3a:// path or config is invalid.
+        """
         self.logger = logger or logging.getLogger(__name__)
         self.minio_client = minio_client
 
@@ -32,7 +62,7 @@ class ConfigLoader:
             raise ValueError("MinIO client must be provided when loading configuration from an s3a:// path.")
 
         try:
-            self.config: Dict[str, Any] = self._load_config(cfg)
+            self.config: dict[str, Any] = self._load_config(cfg)
             self.logger.info("✅ Config loaded successfully")
             self._validate_minimal_fields()
         except Exception as e:
@@ -42,8 +72,19 @@ class ConfigLoader:
     # ----------------------------------------------------------------------
     # Internal helpers
     # ----------------------------------------------------------------------
-    def _load_config(self, cfg: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """Load config from dict, local file, MinIO path, or JSON string."""
+    def _load_config(self, cfg: str | dict[str, Any]) -> dict[str, Any]:
+        """
+        Load configuration from dict, local file, MinIO path, or inline JSON string.
+
+        Args:
+            cfg (str | dict[str, Any]): Configuration source.
+
+        Returns:
+            dict[str, Any]: Parsed configuration dictionary.
+
+        Raises:
+            ValueError: If config source is invalid or unsafe.
+        """
         if isinstance(cfg, dict):
             self.logger.info("📄 Using inline dict configuration")
             return cfg
@@ -102,7 +143,17 @@ class ConfigLoader:
     # Validation and accessors
     # ----------------------------------------------------------------------
     def _validate_minimal_fields(self) -> None:
-        """Ensure minimal required fields exist."""
+        """
+        Validate minimal required configuration structure.
+
+        Ensures:
+          - Required top-level keys exist (tenant, dataset, paths, tables)
+          - Required path keys exist (bronze_base, silver_base)
+          - Each table defines 'name' and 'schema_sql'
+
+        Raises:
+            ValueError: If required keys are missing or invalid.
+        """
         required_top = ["tenant", "dataset", "paths", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
@@ -143,25 +194,25 @@ class ConfigLoader:
     def get_dataset(self) -> str:
         return self.config.get("dataset", "")
 
-    def get_paths(self) -> Dict[str, str]:
+    def get_paths(self) -> dict[str, str]:
         return self.config.get("paths", {})
 
-    def get_csv_defaults(self) -> Dict[str, Any]:
+    def get_csv_defaults(self) -> dict[str, Any]:
         return self.config.get("defaults", {}).get(
             "csv", {"header": False, "delimiter": ",", "inferSchema": False}
         )
 
-    def get_tables(self) -> List[Dict[str, Any]]:
+    def get_tables(self) -> list[dict[str, Any]]:
         return self.config.get("tables", [])
 
-    def get_table(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_table(self, name: str) -> dict[str, Any] | None:
         for t in self.config.get("tables", []):
             if t["name"] == name:
                 return t
         self.logger.warning(f"⚠️ Requested table '{name}' not found in configuration.")
         return None
 
-    def get_bronze_path(self, table_name: str) -> Optional[str]:
+    def get_bronze_path(self, table_name: str) -> str | None:
         """
         Resolve the Bronze path for a given table.
 
@@ -192,7 +243,7 @@ class ConfigLoader:
         base = self.config["paths"]["silver_base"].rstrip("/")
         return f"{base}/{table_name}"
 
-    def get_defaults_for(self, fmt: str) -> Dict[str, Any]:
+    def get_defaults_for(self, fmt: str) -> dict[str, Any]:
         defaults = self.config.get("defaults", {})
         if fmt in defaults:
             return defaults[fmt]
@@ -203,7 +254,7 @@ class ConfigLoader:
         self.logger.warning(f"⚠️ No defaults found for format '{fmt}', using safe fallback.")
         return {"header": False, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False}
 
-    def summarize(self) -> Dict[str, Any]:
+    def summarize(self) -> dict[str, Any]:
         return {
             "tenant": self.get_tenant(),
             "dataset": self.get_dataset(),
@@ -212,5 +263,5 @@ class ConfigLoader:
             "silver_base": self.config["paths"]["silver_base"],
         }
 
-    def get_full_config(self) -> Dict[str, Any]:
+    def get_full_config(self) -> dict[str, Any]:
         return self.config

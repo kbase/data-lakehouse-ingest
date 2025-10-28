@@ -34,9 +34,9 @@ def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger
     assert result["success"] is False
     assert "config_validation" in json.dumps(result)
 
-@patch("data_lakehouse_ingest.core.load_linkml_schema")
+@patch("data_lakehouse_ingest.orchestrator.schema_utils.load_linkml_schema")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-def test_ingest_config_valid_json(mock_loader, mock_linkml, mock_spark, mock_logger):
+def test_ingest_config_valid_json(mock_loader, mock_spark, mock_logger):
     loader = mock_loader.return_value
     loader.get_full_config.return_value = {}
     loader.get_tenant.return_value = "tenant_demo"

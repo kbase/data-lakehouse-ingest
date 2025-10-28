@@ -1,8 +1,8 @@
 import json
 import os
-import tempfile
+from pathlib import Path
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from data_lakehouse_ingest.config_loader import ConfigLoader
 from minio.error import S3Error
 
@@ -17,10 +17,15 @@ def minimal_config():
         "dataset": "arkinlab",
         "paths": {"bronze_base": "s3a://bucket/bronze", "silver_base": "s3a://bucket/silver"},
         "tables": [
-            {"name": "browser_cazy_family", "schema_sql": "id STRING"}
+            {
+                "name": "browser_cazy_family",
+                "schema_sql": "id STRING",
+                "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv"
+            }
         ],
         "defaults": {"csv": {"header": True, "delimiter": ",", "inferSchema": False}},
     }
+
 
 
 @pytest.fixture
@@ -46,13 +51,14 @@ def test_load_from_inline_json(minimal_config, mock_logger):
 
 
 def test_load_from_local_file(minimal_config, mock_logger):
-    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as tmp:
-        json.dump(minimal_config, tmp)
-        tmp_path = tmp.name
+    tmp_path = "local_test_config.json"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(minimal_config, f)
     loader = ConfigLoader(tmp_path, logger=mock_logger)
     assert loader.get_dataset() == "arkinlab"
-    mock_logger.info.assert_any_call(f"📂 Loading configuration from local file: {tmp_path}")
+    mock_logger.info.assert_any_call(f"📂 Loading configuration from local file: {Path(tmp_path).resolve()}")
     os.remove(tmp_path)
+
 
 
 def test_load_from_invalid_json(mock_logger):
@@ -76,7 +82,7 @@ def test_load_from_s3_requires_minio_client(mock_logger):
 def test_load_from_s3_success(minimal_config, mock_logger):
     fake_json = json.dumps(minimal_config)
     fake_response = MagicMock()
-    fake_response.read.return_value = fake_json
+    fake_response.read.return_value = fake_json.encode("utf-8")
     fake_response.close.return_value = None
     fake_response.release_conn.return_value = None
 

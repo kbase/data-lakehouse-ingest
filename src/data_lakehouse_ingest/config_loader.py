@@ -1,10 +1,12 @@
+# src/data_lakehouse_ingest/config_loader.py
+
 from __future__ import annotations
 from typing import Optional, Dict, Any, List, Union
 import json
 import logging
 import os
 from minio.error import S3Error
-
+from pathlib import Path
 
 class ConfigLoader:
     """
@@ -48,22 +50,36 @@ class ConfigLoader:
 
         # --- Local file ---
         if os.path.exists(cfg):
-            self.logger.info(f"📂 Loading configuration from local file: {cfg}")
+            safe_base = Path.cwd().resolve()  # or define a fixed config directory
+            requested_path = Path(cfg).resolve()
+
+            # Check that path is inside safe_base
+            if not str(requested_path).startswith(str(safe_base)):
+                self.logger.error(f"❌ Path traversal attempt detected: {cfg}")
+                raise ValueError(f"❌ Path traversal attempt detected: {cfg}")
+
+            self.logger.info(f"📂 Loading configuration from local file: {requested_path}")
             try:
-                with open(cfg, "r", encoding="utf-8") as f:
+                with open(requested_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                self.logger.error(f"❌ Failed to read local config file {cfg}: {e}", exc_info=True)
+                self.logger.error(f"❌ Failed to read local config file {requested_path}: {e}", exc_info=True)
                 raise
 
         # --- MinIO path (s3a://bucket/key) ---
         if cfg.startswith("s3a://"):
             path = cfg.replace("s3a://", "")
-            bucket, key = path.split("/", 1)
+            #bucket, key = path.split("/", 1)
+            parts = path.split("/", 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid s3a:// path format: {cfg}. Expected s3a://bucket/key")
+            bucket, key = parts
             self.logger.info(f"📦 Fetching config from MinIO: bucket={bucket}, key={key}")
             try:
                 response = self.minio_client.get_object(bucket, key)
-                data = json.loads(response.read())
+                #data = json.loads(response.read())
+                raw_bytes = response.read()
+                data = json.loads(raw_bytes.decode("utf-8"))
                 response.close()
                 response.release_conn()
                 return data
@@ -146,14 +162,31 @@ class ConfigLoader:
         return None
 
     def get_bronze_path(self, table_name: str) -> Optional[str]:
+        """
+        Resolve the Bronze path for a given table.
+
+        Rules:
+        1. If the table defines 'bronze_path', return it.
+        2. Otherwise, raise an explicit error — we do not guess or synthesize paths.
+        """
         t = self.get_table(table_name)
         if not t:
-            self.logger.warning(f"⚠️ Cannot resolve bronze path — table '{table_name}' not found.")
-            return None
-        if "bronze_path" in t and t["bronze_path"]:
-            return t["bronze_path"]
-        base = self.config["paths"]["bronze_base"].rstrip("/")
-        return f"{base}/{t['name']}.csv"
+            msg = f"❌ Cannot resolve bronze path — table '{table_name}' not found in configuration."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # ✅ Must be explicitly defined
+        bronze_path = t.get("bronze_path")
+        if bronze_path:
+            return bronze_path
+
+        msg = (
+            f"❌ 'bronze_path' not defined for table '{table_name}'. "
+            f"Each table must specify an explicit Bronze path in configuration."
+        )
+        self.logger.error(msg)
+        raise ValueError(msg)
+
 
     def get_silver_path(self, table_name: str) -> str:
         base = self.config["paths"]["silver_base"].rstrip("/")

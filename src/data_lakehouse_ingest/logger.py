@@ -36,7 +36,8 @@ def setup_logger(
     logger_name: str = "pipeline_logger",
     pipeline_name: str = "unknown_pipeline",
     target_table: str = "unknown_table",
-    schema: str = "unknown_schema"
+    schema: str = "unknown_schema",
+    log_level: str | None = None,
 ) -> logging.Logger:
     """
     Set up and return a structured logger with both file and console handlers.
@@ -47,6 +48,9 @@ def setup_logger(
         pipeline_name (str): Logical name of the pipeline (used in context).
         target_table (str): Target table name (used in context).
         schema (str): Schema name (used in context).
+        log_level (str | None): Optional log level ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL").
+            If not provided, the environment variable `PIPELINE_LOG_LEVEL` is used.
+            Defaults to "DEBUG" if neither is specified.
 
     Returns:
         logging.Logger: A configured logger instance with structured output.
@@ -54,6 +58,7 @@ def setup_logger(
     Notes:
         - If the logger is already initialized, the same instance is returned.
         - Log output includes pipeline, schema, table, module, and log level.
+        - The log level can be dynamically adjusted per environment.
     """
     global _logger_instance
     if _logger_instance:
@@ -70,9 +75,14 @@ def setup_logger(
 
     # Always get the same logger by name
     logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.DEBUG)
 
-    # 🔥 Clean up any existing handlers on this logger
+    # Determine log level (argument > env var > default)
+    effective_log_level = (
+        log_level or os.getenv("PIPELINE_LOG_LEVEL", "DEBUG")
+    ).upper()
+    logger.setLevel(getattr(logging, effective_log_level, logging.DEBUG))
+
+    # Clean up any existing handlers on this logger
     if logger.hasHandlers():
         for handler in logger.handlers[:]:
             handler.close()
@@ -107,8 +117,6 @@ def setup_logger(
 
     except Exception as e:
         raise RuntimeError(f"Failed to set up logger '{logger_name}': {e}")
-
-
 
 def safe_log_json(logger: logging.Logger, data: object) -> None:
     """

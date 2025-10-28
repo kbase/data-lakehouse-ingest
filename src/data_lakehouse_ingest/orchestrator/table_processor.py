@@ -27,10 +27,6 @@ def process_table(
     bronze_path = loader.get_bronze_path(name)
     silver_path = loader.get_silver_path(name)
 
-    # Helpful prints preserved
-    print("bronze_path", bronze_path)
-    print("silver_path", silver_path)
-
     # Special handling: custom parser (UniProt)
     if table.get("process_with") == "uniprot":
         from ..parsers.uniprot_ingest import process_uniprot_to_delta

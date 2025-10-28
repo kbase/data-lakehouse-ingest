@@ -1,6 +1,6 @@
 # data\_lakehouse\_ingest
 
-End-to-end ingestion framework for CDMHUB / BERDLHUB notebook integration.
+End-to-end ingestion framework for loading data into the BER Data Lakehouse using pyspark and minio.
 
 It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies schema-based casting and validation (via LinkML or SQL-style schema), and writes curated Delta tables to a Spark-based Lakehouse.
 
@@ -101,7 +101,7 @@ print(report)
 
 ---
 
-## 🧠 How it works
+## How it works
 
 1. **ConfigLoader** reads the JSON config (inline or from MinIO).
 2. **Schema Parsing**: Determines schema from LinkML or `schema_sql`.

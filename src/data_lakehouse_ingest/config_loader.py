@@ -20,6 +20,12 @@ import logging
 import os
 from minio.error import S3Error
 from pathlib import Path
+from minio import Minio
+
+# Directory under the user's home where configuration files are safely stored.
+# Prevents path traversal outside this sandbox.
+SAFE_CONFIG_DIR = Path.home().joinpath(".data_lakehouse", "configs").resolve()
+SAFE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
 class ConfigLoader:
     """
@@ -34,14 +40,14 @@ class ConfigLoader:
     Attributes:
         config (dict[str, Any]): The parsed configuration dictionary.
         logger (logging.Logger): The logger instance for structured logging.
-        minio_client (Any): Optional MinIO client for accessing remote configs.
+        minio_client (Minio): Optional MinIO client for accessing remote configs.
     """
 
     def __init__(
         self,
         cfg: str | dict[str, Any],
         logger: logging.Logger | None = None,
-        minio_client: Any | None = None,
+        minio_client: Minio | None = None,
     ):
         """
         Initialize ConfigLoader.
@@ -49,7 +55,7 @@ class ConfigLoader:
         Args:
             cfg (str | dict[str, Any]): Path, inline JSON, or dict representing the configuration.
             logger (logging.Logger | None): Optional logger instance.
-            minio_client (Any | None): MinIO client (required for s3a:// paths).
+            minio_client (Minio | None): MinIO client (required for s3a:// paths).
 
         Raises:
             ValueError: If MinIO client is missing for s3a:// path or config is invalid.
@@ -58,15 +64,15 @@ class ConfigLoader:
         self.minio_client = minio_client
 
         if isinstance(cfg, str) and cfg.startswith("s3a://") and self.minio_client is None:
-            self.logger.error("❌ MinIO client must be provided for s3a:// paths.")
+            self.logger.error("MinIO client must be provided for s3a:// paths.")
             raise ValueError("MinIO client must be provided when loading configuration from an s3a:// path.")
 
         try:
             self.config: dict[str, Any] = self._load_config(cfg)
-            self.logger.info("✅ Config loaded successfully")
+            self.logger.info("Config loaded successfully")
             self._validate_minimal_fields()
         except Exception as e:
-            self.logger.error(f"❌ ConfigLoader initialization failed: {e}", exc_info=True)
+            self.logger.error(f"ConfigLoader initialization failed: {e}", exc_info=True)
             raise
 
     # ----------------------------------------------------------------------
@@ -86,58 +92,70 @@ class ConfigLoader:
             ValueError: If config source is invalid or unsafe.
         """
         if isinstance(cfg, dict):
-            self.logger.info("📄 Using inline dict configuration")
+            self.logger.info("Using inline dict configuration")
             return cfg
 
-        # --- Local file ---
-        if os.path.exists(cfg):
-            safe_base = Path.cwd().resolve()  # or define a fixed config directory
-            requested_path = Path(cfg).resolve()
-
-            # Check that path is inside safe_base
-            if not str(requested_path).startswith(str(safe_base)):
-                self.logger.error(f"❌ Path traversal attempt detected: {cfg}")
-                raise ValueError(f"❌ Path traversal attempt detected: {cfg}")
-
-            self.logger.info(f"📂 Loading configuration from local file: {requested_path}")
-            try:
-                with open(requested_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                self.logger.error(f"❌ Failed to read local config file {requested_path}: {e}", exc_info=True)
-                raise
-
         # --- MinIO path (s3a://bucket/key) ---
-        if cfg.startswith("s3a://"):
+        if isinstance(cfg, str) and cfg.startswith("s3a://"):
             path = cfg.replace("s3a://", "")
-            #bucket, key = path.split("/", 1)
             parts = path.split("/", 1)
             if len(parts) != 2:
                 raise ValueError(f"Invalid s3a:// path format: {cfg}. Expected s3a://bucket/key")
             bucket, key = parts
-            self.logger.info(f"📦 Fetching config from MinIO: bucket={bucket}, key={key}")
+            self.logger.info(f"Fetching config from MinIO: bucket={bucket}, key={key}")
             try:
-                response = self.minio_client.get_object(bucket, key)
-                #data = json.loads(response.read())
-                raw_bytes = response.read()
-                data = json.loads(raw_bytes.decode("utf-8"))
-                response.close()
-                response.release_conn()
-                return data
+                # Automatically handles closing the connection, even on exceptions
+                with self.minio_client.get_object(bucket, key) as response:
+                    raw_bytes = response.read()
+                    data = json.loads(raw_bytes.decode("utf-8"))
+                    return data
             except S3Error as e:
-                self.logger.error(f"❌ Failed to read {cfg} from MinIO: {e}", exc_info=True)
+                self.logger.error(f"Failed to read {cfg} from MinIO: {e}", exc_info=True)
                 raise RuntimeError(f"Failed to read {cfg} from MinIO: {e}")
             except Exception as e:
-                self.logger.error(f"❌ Unexpected error while reading {cfg} from MinIO: {e}", exc_info=True)
+                self.logger.error(f"Unexpected error while reading {cfg} from MinIO: {e}", exc_info=True)
                 raise
 
         # --- Inline JSON string ---
-        self.logger.info("🧾 Parsing inline JSON configuration string")
+        if isinstance(cfg, str) and cfg.strip().startswith(("{", "[")):
+            self.logger.info("Parsing inline JSON configuration string")
+            try:
+                return json.loads(cfg)
+            except Exception as e:
+                self.logger.error(f"Invalid inline JSON configuration: {e}", exc_info=True)
+                raise ValueError(f"Invalid configuration source: {e}")
+        
+        # --- Local file ---
+        requested_path = Path(cfg).resolve()
+        if not str(requested_path).startswith(str(SAFE_CONFIG_DIR)):
+            msg = (
+                f"Unsafe or out-of-sandbox config path detected.\n"
+                f"Provided: {requested_path}\n"
+                f"Allowed base directory: {SAFE_CONFIG_DIR}\n"
+                f"Please move your config file inside the safe directory, for example:\n"
+                f"    {SAFE_CONFIG_DIR.joinpath(Path(cfg).name)}"
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
+        
+        self.logger.info(f"Loading configuration from local file: {requested_path}")
+
+        # Safe to open now
         try:
-            return json.loads(cfg)
+            with open(requested_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError:
+            self.logger.error(f"Config file not found: {cfg}", exc_info=True)
+            raise
+        except PermissionError:
+            self.logger.error(f"Permission denied while reading config: {cfg}", exc_info=True)
+            raise
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON in config file {cfg}: {e}", exc_info=True)
+            raise
         except Exception as e:
-            self.logger.error(f"❌ Invalid inline JSON configuration: {e}", exc_info=True)
-            raise ValueError(f"Invalid configuration source: {e}")
+            self.logger.error(f"Unexpected error reading {cfg}: {e}", exc_info=True)
+            raise
 
     # ----------------------------------------------------------------------
     # Validation and accessors
@@ -157,31 +175,31 @@ class ConfigLoader:
         required_top = ["tenant", "dataset", "paths", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
-            self.logger.error(f"❌ Missing required top-level keys: {missing_top}")
+            self.logger.error(f"Missing required top-level keys: {missing_top}")
             raise ValueError(f"Missing required top-level keys: {missing_top}")
 
         required_paths = ["bronze_base", "silver_base"]
         missing_paths = [k for k in required_paths if k not in self.config["paths"]]
         if missing_paths:
-            self.logger.error(f"❌ Missing required path keys: {missing_paths}")
+            self.logger.error(f"Missing required path keys: {missing_paths}")
             raise ValueError(f"Missing required path keys: {missing_paths}")
 
         tables = self.config.get("tables", [])
         if not isinstance(tables, list) or not tables:
-            self.logger.error("❌ Config must contain a non-empty 'tables' list")
+            self.logger.error("Config must contain a non-empty 'tables' list")
             raise ValueError("Config must contain a non-empty 'tables' list")
 
         for t in tables:
             for key in ["name", "schema_sql"]:
                 if key not in t:
-                    self.logger.error(f"❌ Table entry missing required key: {key}")
+                    self.logger.error(f"Table entry missing required key: {key}")
                     raise ValueError(f"Table entry missing required key: {key}")
 
         # Optional but useful warnings
         if "defaults" not in self.config:
-            self.logger.warning("⚠️ No 'defaults' section found in config — using built-in defaults.")
+            self.logger.warning("No 'defaults' section found in config — using built-in defaults.")
 
-        self.logger.info("✅ Minimal config validation passed")
+        self.logger.info("Minimal config validation passed")
 
     # ----------------------------------------------------------------------
     # Accessors
@@ -209,7 +227,7 @@ class ConfigLoader:
         for t in self.config.get("tables", []):
             if t["name"] == name:
                 return t
-        self.logger.warning(f"⚠️ Requested table '{name}' not found in configuration.")
+        self.logger.warning(f"Requested table '{name}' not found in configuration.")
         return None
 
     def get_bronze_path(self, table_name: str) -> str | None:
@@ -222,17 +240,17 @@ class ConfigLoader:
         """
         t = self.get_table(table_name)
         if not t:
-            msg = f"❌ Cannot resolve bronze path — table '{table_name}' not found in configuration."
+            msg = f"Cannot resolve bronze path — table '{table_name}' not found in configuration."
             self.logger.error(msg)
             raise ValueError(msg)
 
-        # ✅ Must be explicitly defined
+        # Must be explicitly defined
         bronze_path = t.get("bronze_path")
         if bronze_path:
             return bronze_path
 
         msg = (
-            f"❌ 'bronze_path' not defined for table '{table_name}'. "
+            f"'bronze_path' not defined for table '{table_name}'. "
             f"Each table must specify an explicit Bronze path in configuration."
         )
         self.logger.error(msg)
@@ -251,7 +269,7 @@ class ConfigLoader:
             csv_def = defaults["csv"].copy()
             csv_def["delimiter"] = "\t"
             return csv_def
-        self.logger.warning(f"⚠️ No defaults found for format '{fmt}', using safe fallback.")
+        self.logger.warning(f"No defaults found for format '{fmt}', using safe fallback.")
         return {"header": False, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False}
 
     def summarize(self) -> dict[str, Any]:

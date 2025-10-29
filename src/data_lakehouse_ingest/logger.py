@@ -88,35 +88,31 @@ def setup_logger(
             handler.close()
             logger.removeHandler(handler)
 
-    try:
-        # JSON-style structured formatter
-        formatter = logging.Formatter(
-            '{"time": "%(asctime)s", "pipeline": "%(pipeline_name)s", '
-            '"schema": "%(schema)s", "table": "%(target_table)s", '
-            '"level": "%(levelname)s", "module": "%(module)s", "msg": "%(message)s"}'
-        )
+    # JSON-style structured formatter
+    formatter = logging.Formatter(
+        '{"time": "%(asctime)s", "pipeline": "%(pipeline_name)s", '
+        '"schema": "%(schema)s", "table": "%(target_table)s", '
+        '"level": "%(levelname)s", "module": "%(module)s", "msg": "%(message)s"}'
+    )
 
-        # File handler
-        fh = logging.FileHandler(log_file, mode="w")
-        fh.setFormatter(formatter)
-        logger.addHandler(fh)
+    # File handler
+    fh = logging.FileHandler(log_file, mode="w")
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
 
-        # Console handler
-        ch = logging.StreamHandler(sys.stdout)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
+    # Console handler
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
-        # Add pipeline context filter
-        context_filter = PipelineContextFilter(pipeline_name, target_table, schema)
-        logger.addFilter(context_filter)
+    # Add pipeline context filter
+    context_filter = PipelineContextFilter(pipeline_name, target_table, schema)
+    logger.addFilter(context_filter)
 
-        # Store log file path for later inspection
-        logger.log_file_path = log_file
-        _logger_instance = logger
-        return logger
-
-    except Exception as e:
-        raise RuntimeError(f"Failed to set up logger '{logger_name}': {e}")
+    # Store log file path for later inspection
+    logger.log_file_path = log_file
+    _logger_instance = logger
+    return logger
 
 def safe_log_json(logger: logging.Logger, data: object) -> None:
     """

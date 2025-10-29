@@ -39,35 +39,36 @@ def mock_logger():
 def test_load_from_dict(minimal_config, mock_logger):
     loader = ConfigLoader(minimal_config, logger=mock_logger)
     assert loader.get_tenant() == "genomedepot_arkinlab"
-    mock_logger.info.assert_any_call("📄 Using inline dict configuration")
-    mock_logger.info.assert_any_call("✅ Minimal config validation passed")
+    mock_logger.info.assert_any_call("Using inline dict configuration")
+    mock_logger.info.assert_any_call("Minimal config validation passed")
 
 
 def test_load_from_inline_json(minimal_config, mock_logger):
     cfg_str = json.dumps(minimal_config)
     loader = ConfigLoader(cfg_str, logger=mock_logger)
     assert isinstance(loader.get_full_config(), dict)
-    mock_logger.info.assert_any_call("🧾 Parsing inline JSON configuration string")
+    mock_logger.info.assert_any_call("Parsing inline JSON configuration string")
 
 
 def test_load_from_local_file(minimal_config, mock_logger):
-    tmp_path = "local_test_config.json"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(minimal_config, f)
-    loader = ConfigLoader(tmp_path, logger=mock_logger)
-    assert loader.get_dataset() == "arkinlab"
-    mock_logger.info.assert_any_call(f"📂 Loading configuration from local file: {Path(tmp_path).resolve()}")
-    os.remove(tmp_path)
-
+    safe_file = Path.home() / ".data_lakehouse" / "configs" / "local_test_config.json"
+    safe_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(safe_file, "w", encoding="utf-8") as f:
+            json.dump(minimal_config, f)
+        loader = ConfigLoader(str(safe_file), logger=mock_logger)
+        assert loader.get_dataset() == "arkinlab"
+        mock_logger.info.assert_any_call(f"Loading configuration from local file: {safe_file.resolve()}")
+    finally:
+        if safe_file.exists():
+            safe_file.unlink()
 
 
 def test_load_from_invalid_json(mock_logger):
     bad_json = "{ invalid json }"
     with pytest.raises(ValueError):
         ConfigLoader(bad_json, logger=mock_logger)
-    mock_logger.error.assert_any_call(
-        pytest.helpers.anything(), exc_info=True
-    ) if hasattr(pytest, "helpers") else None
+    mock_logger.error.assert_called()
 
 
 def test_load_from_s3_requires_minio_client(mock_logger):
@@ -80,18 +81,16 @@ def test_load_from_s3_requires_minio_client(mock_logger):
 # MinIO read success & failure paths
 # ---------------------------------------------------------------------
 def test_load_from_s3_success(minimal_config, mock_logger):
-    fake_json = json.dumps(minimal_config)
+    fake_json = json.dumps(minimal_config).encode("utf-8")
     fake_response = MagicMock()
-    fake_response.read.return_value = fake_json.encode("utf-8")
-    fake_response.close.return_value = None
-    fake_response.release_conn.return_value = None
+    fake_response.read.return_value = fake_json
 
     mock_minio = MagicMock()
-    mock_minio.get_object.return_value = fake_response
+    mock_minio.get_object.return_value.__enter__.return_value = fake_response
 
     loader = ConfigLoader("s3a://test-bucket/config.json", logger=mock_logger, minio_client=mock_minio)
     assert loader.get_tenant().startswith("genomedepot")
-    mock_logger.info.assert_any_call("📦 Fetching config from MinIO: bucket=test-bucket, key=config.json")
+    mock_logger.info.assert_any_call("Fetching config from MinIO: bucket=test-bucket, key=config.json")
 
 
 def test_load_from_s3_failure_s3error(mock_logger):
@@ -116,7 +115,7 @@ def test_missing_required_top_level_keys(mock_logger):
     bad_cfg = {"tenant": "t"}  # missing many keys
     with pytest.raises(ValueError):
         ConfigLoader(bad_cfg, logger=mock_logger)
-    mock_logger.error.assert_any_call("❌ Missing required top-level keys: ['dataset', 'paths', 'tables']")
+    mock_logger.error.assert_any_call("Missing required top-level keys: ['dataset', 'paths', 'tables']")
 
 
 def test_missing_paths_section(mock_logger, minimal_config):
@@ -130,7 +129,7 @@ def test_missing_table_key(mock_logger, minimal_config):
     del minimal_config["tables"][0]["schema_sql"]
     with pytest.raises(ValueError):
         ConfigLoader(minimal_config, logger=mock_logger)
-    mock_logger.error.assert_any_call("❌ Table entry missing required key: schema_sql")
+    mock_logger.error.assert_any_call("Table entry missing required key: schema_sql")
 
 
 # ---------------------------------------------------------------------
@@ -159,4 +158,4 @@ def test_get_defaults_for_unknown_format_warns(minimal_config, mock_logger):
     loader = ConfigLoader(minimal_config, logger=mock_logger)
     df = loader.get_defaults_for("parquet")
     assert df["delimiter"] == ","
-    mock_logger.warning.assert_any_call("⚠️ No defaults found for format 'parquet', using safe fallback.")
+    mock_logger.warning.assert_any_call("No defaults found for format 'parquet', using safe fallback.")

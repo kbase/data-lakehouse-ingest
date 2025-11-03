@@ -1,3 +1,3 @@
-from .core import data_lakehouse_ingest_config
+from .core import ingest
 
-__all__ = ["data_lakehouse_ingest_config"]
+__all__ = ["ingest"]

@@ -24,7 +24,7 @@ from .orchestrator.table_processor import process_table
 from .orchestrator.error_utils import error_entry_for_exception
 
 
-def data_lakehouse_ingest_config(
+def ingest(
     config: str | dict[str, Any],
     spark: SparkSession | None = None,
     logger: logging.Logger | None = None,

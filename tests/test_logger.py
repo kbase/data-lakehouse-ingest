@@ -60,9 +60,15 @@ def test_pipeline_context_filter_injects_fields():
         exc_info=None,
     )
 
+    # Before applying the filter, the fields should not exist
+    assert not hasattr(record, "pipeline_name")
+    assert not hasattr(record, "target_table")
+    assert not hasattr(record, "schema")
+
     f = PipelineContextFilter("pipelineA", "tableX", "schemaZ")
     f.filter(record)
 
+    # After applying the filter, the fields should exist and match expected values
     assert record.pipeline_name == "pipelineA"
     assert record.target_table == "tableX"
     assert record.schema == "schemaZ"

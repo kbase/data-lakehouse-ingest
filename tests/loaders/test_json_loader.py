@@ -1,6 +1,8 @@
 import pytest
 from data_lakehouse_ingest.loaders.json_loader import load_json_data
 
+# TODO: Add more comprehensive tests to cover valid and invalid JSON data cases.
+
 def test_load_json_data_success(mock_spark, mock_logger):
     df = load_json_data(mock_spark, "s3a://bucket/sample.json", {}, mock_logger)
     assert df is not None

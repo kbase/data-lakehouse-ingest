@@ -35,7 +35,7 @@ def load_json_data(spark: SparkSession, path: str, opts: dict, logger: logging.L
 
         # Count the number of records read and log for traceability
         record_count = df.count()
-        logger.info(f"✅ Loaded {record_count} records from JSON at {path}")
+        logger.info(f"✅ Loaded {record_count} JSON records from {path}")
 
         return df
 

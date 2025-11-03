@@ -1,3 +1,3 @@
-from .core import ingest_from_config
+from .core import ingest
 
-__all__ = ["ingest_from_config"]
+__all__ = ["ingest"]

@@ -1,7 +1,7 @@
 import pytest
 import json
 from unittest.mock import MagicMock, patch
-from data_lakehouse_ingest.core import data_lakehouse_ingest_config
+from data_lakehouse_ingest.core import ingest
 
 # ---------------------------------------------------------------------
 # Helper: create a dummy SparkSession mock
@@ -22,14 +22,14 @@ def mock_logger():
 # data_lakehouse_ingest_config tests
 # ---------------------------------------------------------------------
 def test_ingest_config_missing_spark(mock_logger):
-    result = data_lakehouse_ingest_config(config={}, spark=None, logger=mock_logger)
+    result = ingest(config={}, spark=None, logger=mock_logger)
     assert result["success"] is False
     assert "spark_initialization" in json.dumps(result)
 
 @patch("data_lakehouse_ingest.core.ConfigLoader")
 def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger):
     mock_loader.side_effect = Exception("invalid config")
-    result = data_lakehouse_ingest_config(config={}, spark=mock_spark, logger=mock_logger)
+    result = ingest(config={}, spark=mock_spark, logger=mock_logger)
     assert result["success"] is False
     assert "config_validation" in json.dumps(result)
 
@@ -51,7 +51,7 @@ def test_ingest_config_valid_json(mock_loader, mock_spark, mock_logger):
     loader.get_bronze_path.return_value = "s3a://bucket/file.json"
     loader.get_silver_path.return_value = "s3a://bucket/silver/table1"
 
-    result = data_lakehouse_ingest_config(config={}, spark=mock_spark, logger=mock_logger)
+    result = ingest(config={}, spark=mock_spark, logger=mock_logger)
     assert result["success"] is True
     assert len(result["tables"]) == 1
     assert result["tables"][0]["status"] == "success"

@@ -24,7 +24,7 @@ from .orchestrator.table_processor import process_table
 from .orchestrator.error_utils import error_entry_for_exception
 
 
-def data_lakehouse_ingest_config(
+def ingest(
     config: str | dict[str, Any],
     spark: SparkSession | None = None,
     logger: logging.Logger | None = None,
@@ -89,7 +89,6 @@ def data_lakehouse_ingest_config(
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
     tenant = ctx["tenant"]
-    namespace = ctx["namespace"]
     tables = ctx["tables"]
 
     table_reports: list[dict[str, Any]] = []
@@ -102,7 +101,6 @@ def data_lakehouse_ingest_config(
                 spark=spark,
                 logger=logger,
                 loader=loader,
-                namespace=namespace,
                 tenant=tenant,
                 table=table,
                 run_started_at_iso=started_at,

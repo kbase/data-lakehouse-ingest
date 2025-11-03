@@ -43,7 +43,7 @@ def load_xml_data(spark: SparkSession, path: str, opts: dict, logger: logging.Lo
 
         # Count and log the number of records read successfully
         record_count = df.count()
-        logger.info(f"✅ Loaded {record_count} XML records using rowTag='{row_tag}'")
+        logger.info(f"✅ Loaded {record_count} XML records from {path}")
 
         return df
 

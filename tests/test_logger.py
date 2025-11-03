@@ -4,14 +4,9 @@ import os
 import pytest
 from data_lakehouse_ingest.logger import setup_logger, PipelineContextFilter
 
-@pytest.fixture
-def temp_log_dir(tmp_path):
-    """Fixture to provide a temporary log directory."""
-    return tmp_path
-
-def test_setup_logger_creates_file_and_logs_context(temp_log_dir):
+def test_setup_logger_creates_file_and_logs_context(tmp_path):
     logger = setup_logger(
-        log_dir=str(temp_log_dir),
+        log_dir=str(tmp_path),
         logger_name="test_logger",
         pipeline_name="pangenome_pipeline",
         target_table="genome",
@@ -42,9 +37,9 @@ def test_setup_logger_creates_file_and_logs_context(temp_log_dir):
     assert "This is a test message" in log_entry["msg"]
     assert log_entry["level"] == "INFO"
 
-def test_logger_returns_same_instance(temp_log_dir):
-    logger1 = setup_logger(log_dir=str(temp_log_dir), logger_name="same_logger")
-    logger2 = setup_logger(log_dir=str(temp_log_dir), logger_name="same_logger")
+def test_logger_returns_same_instance(tmp_path):
+    logger1 = setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
+    logger2 = setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
 
     # Both should be identical (singleton behavior)
     assert logger1 is logger2
@@ -60,9 +55,15 @@ def test_pipeline_context_filter_injects_fields():
         exc_info=None,
     )
 
+    # Before applying the filter, the fields should not exist
+    assert not hasattr(record, "pipeline_name")
+    assert not hasattr(record, "target_table")
+    assert not hasattr(record, "schema")
+
     f = PipelineContextFilter("pipelineA", "tableX", "schemaZ")
     f.filter(record)
 
+    # After applying the filter, the fields should exist and match expected values
     assert record.pipeline_name == "pipelineA"
     assert record.target_table == "tableX"
     assert record.schema == "schemaZ"

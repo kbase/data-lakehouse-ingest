@@ -10,6 +10,16 @@ from typing import Any
 from typing import Any, TypedDict
 
 class TableReport(TypedDict, total=False):
+    """
+    Represents a structured entry for a single table in the ingestion report.
+
+    Attributes:
+        name (str): Name of the table being processed.
+        rows (int): Number of rows successfully loaded or processed.
+        status (str): Outcome of the ingestion for this table (e.g., "success", "failed").
+        duration_sec (float): Time taken (in seconds) to process this table.
+        message (str): Optional descriptive message or additional context.
+    """
     name: str
     rows: int
     status: str
@@ -17,13 +27,35 @@ class TableReport(TypedDict, total=False):
     message: str
 
 class ErrorReport(TypedDict, total=False):
+    """
+    Represents a structured error entry within an ingestion report.
+
+    Attributes:
+        phase (str): The pipeline phase during which the error occurred
+            (e.g., "config_validation", "data_load", "write_to_delta").
+        error (str): A brief description of the error or exception message.
+        table (str | None): Name of the table associated with the error, if applicable.
+        stacktrace (str | None): Optional detailed stack trace or debugging information.
+    """
     phase: str
     error: str
     table: str | None
     stacktrace: str | None
 
 def _normalize_to_utc(ts: str) -> str:
-    """Convert an ISO 8601 timestamp string to UTC ISO format."""
+    """
+    Convert an ISO 8601 timestamp string to UTC ISO format.
+
+    This helper ensures consistent UTC-based time representation
+    across ingestion reports. If the timestamp lacks timezone info,
+    it is assumed to be UTC. Non-UTC timezones are converted to UTC.
+
+    Args:
+        ts (str): ISO 8601 timestamp string (may be naive or timezone-aware).
+
+    Returns:
+        str: ISO 8601 timestamp string normalized to UTC.
+    """
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
         # Assume naive datetimes are UTC (could log a warning if desired)

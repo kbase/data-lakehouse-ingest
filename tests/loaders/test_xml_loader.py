@@ -1,6 +1,8 @@
 import pytest
 from data_lakehouse_ingest.loaders.xml_loader import load_xml_data
 
+# TODO: Add more comprehensive tests to cover valid and invalid XML data cases.
+
 def test_load_xml_data_success(mock_spark, mock_logger):
     opts = {"rowTag": "record"}
     df = load_xml_data(mock_spark, "s3a://bucket/data.xml", opts, mock_logger)

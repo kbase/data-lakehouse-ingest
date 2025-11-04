@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
 
 _logger_instance = None
 
@@ -32,7 +33,7 @@ class PipelineContextFilter(logging.Filter):
         return True
 
 def setup_logger(
-    log_dir: str = "local_logs",
+    log_dir: str | Path = Path("local_logs"),
     logger_name: str = "pipeline_logger",
     pipeline_name: str = "unknown_pipeline",
     target_table: str = "unknown_table",
@@ -65,10 +66,8 @@ def setup_logger(
         return _logger_instance
 
     # Ensure log directory exists
-    try:
-        os.makedirs(log_dir, exist_ok=True)
-    except Exception as e:
-        raise OSError(f"Failed to create log directory '{log_dir}': {e}")
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().isoformat(timespec="seconds").replace(":", "-")
     log_file = os.path.join(log_dir, f"pipeline_run_{timestamp}.log")

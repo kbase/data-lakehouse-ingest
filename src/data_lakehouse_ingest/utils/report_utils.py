@@ -1,64 +1,65 @@
 """
-File name: src/data_lakehouse_ingest/utils/report_utils.py
+Pydantic-based ingestion reporting utilities.
 
-Generates structured ingestion reports summarizing pipeline execution.
-Computes duration, status, and per-table results with optional error and extra context.
+Provides validated, structured report models used to summarize data ingestion
+pipeline execution. Ensures strong typing, automatic datetime handling, and
+consistent JSON-serializable report output.
 """
 
 from datetime import datetime, timezone
 from typing import Any
-from typing import Any, TypedDict
 
-class TableReport(TypedDict, total=False):
+from pydantic import BaseModel, Field, validator
+
+
+class TableReport(BaseModel):
     """
-    Represents a structured entry for a single table in the ingestion report.
+    Represents the outcome of ingesting a single table.
 
     Attributes:
         name (str): Name of the table being processed.
-        rows (int): Number of rows successfully loaded or processed.
-        status (str): Outcome of the ingestion for this table (e.g., "success", "failed").
-        duration_sec (float): Time taken (in seconds) to process this table.
-        message (str): Optional descriptive message or additional context.
+        rows (int | None): Number of rows successfully ingested or processed.
+        status (str): Outcome of the ingestion (e.g., "success", "failed").
+        duration_sec (float | None): Time taken for table processing in seconds.
+        message (str | None): Additional context or status message.
     """
-    name: str
-    rows: int
-    status: str
-    duration_sec: float
-    message: str
+    name: str = Field(..., description="Name of the table")
+    rows: int | None = Field(None, description="Row count for the table")
+    status: str = Field(..., description="Status of ingestion (success/failed)")
+    duration_sec: float | None = Field(None, description="Processing duration")
+    message: str | None = Field(None, description="Additional context or notes")
 
-class ErrorReport(TypedDict, total=False):
+
+class ErrorReport(BaseModel):
     """
     Represents a structured error entry within an ingestion report.
 
     Attributes:
-        phase (str): The pipeline phase during which the error occurred
-            (e.g., "config_validation", "data_load", "write_to_delta").
-        error (str): A brief description of the error or exception message.
+        phase (str): Pipeline phase where the error occurred.
+        error (str): Brief error or exception message.
         table (str | None): Name of the table associated with the error, if applicable.
-        stacktrace (str | None): Optional detailed stack trace or debugging information.
+        stacktrace (str | None): Optional detailed stack trace.
     """
-    phase: str
-    error: str
-    table: str | None
-    stacktrace: str | None
+    phase: str = Field(..., description="Pipeline phase where error occurred")
+    error: str = Field(..., description="Error message")
+    table: str | None = Field(None, description="Table name related to the error")
+    stacktrace: str | None = Field(None, description="Stack trace for debugging")
+
 
 def _normalize_to_utc(ts: str) -> str:
     """
     Convert an ISO 8601 timestamp string to UTC ISO format.
-
     This helper ensures consistent UTC-based time representation
     across ingestion reports. If the timestamp lacks timezone info,
     it is assumed to be UTC. Non-UTC timezones are converted to UTC.
-
     Args:
         ts (str): ISO 8601 timestamp string (may be naive or timezone-aware).
-
     Returns:
         str: ISO 8601 timestamp string normalized to UTC.
     """
     dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
-        # Assume naive datetimes are UTC (could log a warning if desired)
+        # Assume naive datetimes are UTC
         dt = dt.replace(tzinfo=timezone.utc)
     else:
         # Convert any non-UTC timezone to UTC
@@ -77,14 +78,14 @@ def generate_report(
     Generate a consistent ingestion report structure.
 
     Args:
-        success (bool, defaults to True): Whether the operation succeeded overall.
-        started_at (str, optional): ISO timestamp when the operation started.
-        tables (list, optional): List of table-level report dictionaries.
-        errors (list, optional): List of error entries with 'phase', 'error', etc.
-        extra (dict, optional): Additional key-value pairs to merge (e.g., for partial errors).
+        success (bool): Whether the operation succeeded overall.
+        started_at (str | None): ISO timestamp when ingestion started.
+        tables (list[TableReport] | None): Per-table ingestion results.
+        errors (list[ErrorReport] | None): Error entries for the run.
+        extra (dict[str, Any] | None): Additional metadata fields.
 
     Returns:
-        dict: Structured ingestion report.
+        dict[str, Any]: Structured ingestion report.
     """
     if started_at is None:
         started_at = datetime.now(timezone.utc).isoformat()

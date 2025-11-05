@@ -46,25 +46,32 @@ class ErrorReport(BaseModel):
     stacktrace: str | None = Field(None, description="Stack trace for debugging")
 
 
-def _normalize_to_utc(ts: str) -> str:
+def _normalize_to_utc(ts: str | None) -> datetime:
     """
-    Convert an ISO 8601 timestamp string to UTC ISO format.
-    This helper ensures consistent UTC-based time representation
-    across ingestion reports. If the timestamp lacks timezone info,
-    it is assumed to be UTC. Non-UTC timezones are converted to UTC.
+    Normalize a timestamp to a timezone-aware UTC datetime object.
+    
+    This helper accepts an ISO 8601 timestamp string or None.  
+    - If `ts` is None, the current UTC time is returned.  
+    - If `ts` is a naive datetime string (no timezone), it is assumed to already
+      represent UTC and is converted to a UTC-aware datetime.
+    - If `ts` includes a timezone offset, it is converted to UTC.
+
     Args:
-        ts (str): ISO 8601 timestamp string (may be naive or timezone-aware).
+        ts (str | None): ISO 8601 timestamp string (naive or timezone-aware) or None.
+
     Returns:
-        str: ISO 8601 timestamp string normalized to UTC.
+        datetime: A timezone-aware UTC datetime object.
     """
+    if ts is None:
+        return datetime.now(timezone.utc)
+
     dt = datetime.fromisoformat(ts)
+
     if dt.tzinfo is None:
-        # Assume naive datetimes are UTC
-        dt = dt.replace(tzinfo=timezone.utc)
-    else:
-        # Convert any non-UTC timezone to UTC
-        dt = dt.astimezone(timezone.utc)
-    return dt.isoformat()
+        # Assume naive datetime is UTC
+        return dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(timezone.utc)
 
 
 def generate_report(
@@ -87,21 +94,14 @@ def generate_report(
     Returns:
         dict[str, Any]: Structured ingestion report.
     """
-    if started_at is None:
-        started_at = datetime.now(timezone.utc).isoformat()
-    else:
-        started_at = _normalize_to_utc(started_at)
-
-    ended_at = datetime.now(timezone.utc).isoformat()
-    duration_sec = (
-        datetime.fromisoformat(ended_at) -
-        datetime.fromisoformat(started_at)
-    ).total_seconds()
+    started_at_dt = _normalize_to_utc(started_at)
+    ended_at_dt = datetime.now(timezone.utc)
+    duration_sec = (ended_at_dt - started_at_dt).total_seconds()
 
     report = {
         "success": success,
-        "started_at": started_at,
-        "ended_at": ended_at,
+        "started_at": started_at_dt.isoformat(),
+        "ended_at": ended_at_dt.isoformat(),
         "duration_sec": duration_sec,
         "tables": tables,
         "errors": errors or [],

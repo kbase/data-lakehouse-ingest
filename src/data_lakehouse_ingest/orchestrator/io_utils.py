@@ -1,6 +1,4 @@
 """
-File name: src/data_lakehouse_ingest/orchestrator/io_utils.py
-
 Input/output utilities for the Data Lakehouse Ingest framework.
 Handles file format detection, data loading from Bronze sources,
 and writing curated data to Silver Delta tables.
@@ -75,23 +73,39 @@ def load_table_data(
 def write_to_delta(
     df,
     spark: SparkSession,
-    tenant: str,
+    namespace: str,
+    namespace_base_path: str,
     name: str,
     silver_path: str,
     partition_by: str | list[str] | None,
     mode: str,
     logger: logging.Logger,
 ) -> int:
+    # Construct deterministic table path inside namespace storage location
+    table_path = f"{namespace_base_path}/{name}"
+
+    logger.info(f"Resolved Delta target path: {table_path}")
+
+    # Write (with overwriteSchema only for overwrite mode)
     writer = df.write.format("delta").mode(mode)
+
+    if mode == "overwrite":
+        writer = writer.option("overwriteSchema", "true")
+
     if partition_by:
         writer = writer.partitionBy(partition_by)
-    writer.save(silver_path)
 
+    writer.save(table_path)
+
+    # Register table if missing (no schema overwrite here!)
     spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS `{tenant}`.`{name}`
+        CREATE TABLE IF NOT EXISTS `{namespace}`.`{name}`
         USING DELTA
-        LOCATION '{silver_path}'
+        LOCATION '{table_path}'
     """)
-    rows_written = spark.read.format("delta").load(silver_path).count()
-    logger.info(f"✅ Wrote {rows_written} rows to {tenant}.{name} at {silver_path}")
+
+    # Count and log rows
+    rows_written = spark.read.format("delta").load(table_path).count()
+    logger.info(f"Wrote {rows_written} rows → {namespace}.{name} @ {table_path}")
+
     return rows_written

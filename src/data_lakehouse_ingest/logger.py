@@ -20,23 +20,25 @@ class PipelineContextFilter(logging.Filter):
     into each log record. This enables structured logging across all components.
     """
 
-    def __init__(self, pipeline_name: str, target_table: str, schema: str):
+    def __init__(self, pipeline_name: str, schema: str):
         super().__init__()
         self.pipeline_name = pipeline_name
-        self.target_table = target_table
         self.schema = schema
+        self.target_table = "unknown_table"  # default
+
+    def set_table(self, table: str):
+        self.target_table = table
 
     def filter(self, record):
         record.pipeline_name = self.pipeline_name
-        record.target_table = self.target_table
         record.schema = self.schema
+        record.target_table = self.target_table
         return True
 
 def setup_logger(
     log_dir: str | Path = Path("local_logs"),
     logger_name: str = "pipeline_logger",
     pipeline_name: str = "unknown_pipeline",
-    target_table: str = "unknown_table",
     schema: str = "unknown_schema",
     log_level: str | None = None,
 ) -> logging.Logger:
@@ -105,8 +107,9 @@ def setup_logger(
     logger.addHandler(ch)
 
     # Add pipeline context filter
-    context_filter = PipelineContextFilter(pipeline_name, target_table, schema)
+    context_filter = PipelineContextFilter(pipeline_name, schema)
     logger.addFilter(context_filter)
+    logger.context_filter = context_filter
 
     # Store log file path for later inspection
     logger.log_file_path = log_file

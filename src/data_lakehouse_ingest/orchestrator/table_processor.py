@@ -31,6 +31,8 @@ def process_table(
     logger: logging.Logger,
     loader: Any,
     tenant: str,
+    namespace: str,
+    namespace_base_path: str,
     table: dict,
     run_started_at_iso: str,
     minio_client: Minio | None = None,
@@ -97,7 +99,7 @@ def process_table(
 
     name = table["name"]
     bronze_path = loader.get_bronze_path(name)
-    silver_path = loader.get_silver_path(name)
+    silver_path = namespace_base_path
 
     # Special handling: custom parser (UniProt)
     if table.get("process_with") == "uniprot":
@@ -121,7 +123,7 @@ def process_table(
         return {
             "name": name,
             "tenant": tenant,
-            "target_table": f"{tenant}.{name}",
+            "target_table": f"{namespace}.{name}",
             "mode": table.get("mode", "overwrite"),
             "format": "xml",
             "schema_source": "custom_parser",
@@ -192,7 +194,8 @@ def process_table(
     rows_written = write_to_delta(
         df=df,
         spark=spark,
-        tenant=tenant,
+        namespace=namespace,
+        namespace_base_path=namespace_base_path,
         name=name,
         silver_path=silver_path,
         partition_by=partition_by,
@@ -210,7 +213,7 @@ def process_table(
     return {
         "name": name,
         "tenant": tenant,
-        "target_table": f"{tenant}.{name}",
+        "target_table": f"{namespace}.{name}",
         "mode": mode,
         "format": fmt,
         "schema_source": schema_source,

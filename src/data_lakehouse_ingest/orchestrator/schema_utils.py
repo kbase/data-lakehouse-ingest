@@ -1,6 +1,4 @@
 """
-File name: src/data_lakehouse_ingest/orchestrator/schema_utils.py
-
 Schema management utilities for the Data Lakehouse Ingest framework.
 Handles schema resolution (LinkML or inline SQL) and column alignment for ingested DataFrames.
 Provides helpers to enforce consistent structure between raw data and curated Delta tables.
@@ -59,15 +57,15 @@ def resolve_schema(
         try:
             schema_cols = load_linkml_schema(spark, linkml_schema, logger, minio_client=minio_client)
             schema_sql = ", ".join([f"{c} {t}" for c, t in schema_cols.items()])
-            logger.info(f"✅ Derived schema_sql from LinkML for {table.get('name')}: {schema_sql}")
+            logger.info(f"Derived schema_sql from LinkML for {table.get('name')}: {schema_sql}")
             return schema_sql, "linkml"
         except Exception as e:
-            logger.error(f"❌ Failed to parse LinkML schema for {table.get('name')}: {e}", exc_info=True)
+            logger.error(f"Failed to parse LinkML schema for {table.get('name')}: {e}", exc_info=True)
             if schema_sql:
-                logger.warning(f"⚠️ Falling back to inline schema_sql for {table.get('name')}.")
+                logger.warning(f"Falling back to inline schema_sql for {table.get('name')}.")
                 return schema_sql, "fallback_sql"
             else:
-                logger.warning("⚠️ No schema_sql fallback available. Using inferred schema.")
+                logger.warning("No schema_sql fallback available. Using inferred schema.")
                 return None, "inferred"
 
     if schema_sql:
@@ -114,20 +112,30 @@ def apply_schema_columns(
     target_cols = [x.strip().split(" ")[0] for x in schema_sql.split(",")]
     current_cols = df.columns
 
-    # Optional projection to drop extras if requested
-    if drop_extra_columns:
-        keep_set = set(target_cols)
-        projected = [c for c in current_cols if c in keep_set]
-        if projected != current_cols:
-            df = df.select(*projected)
-            current_cols = df.columns
+    # Determine column differences
+    extra_cols = [c for c in current_cols if c not in target_cols]
+    missing_cols = [c for c in target_cols if c not in current_cols]
+
+    # Log column differences ALWAYS
+    if extra_cols or missing_cols:
+        logger.warning(
+            "Column mismatch detected:\n"
+            f"   Extra columns in data: {extra_cols if extra_cols else 'None'}\n"
+            f"   Missing columns from data: {missing_cols if missing_cols else 'None'}"
+        )
+
+    # Drop extra columns if requested
+    if drop_extra_columns and extra_cols:
+        logger.info(f"   Dropping extra columns not in schema: {extra_cols}")
+        df = df.select(*[c for c in current_cols if c in target_cols])
+        current_cols = df.columns  # refresh after projection
 
     if len(target_cols) == len(current_cols):
         df = df.toDF(*target_cols)
         logger.info(f"   Applied inline schema columns: {', '.join(target_cols)}")
     else:
         logger.warning(
-            "⚠️ Schema column mismatch: "
+            "Schema column mismatch: "
             f"{len(current_cols)} in data vs {len(target_cols)} in schema. Skipping rename."
         )
     return df

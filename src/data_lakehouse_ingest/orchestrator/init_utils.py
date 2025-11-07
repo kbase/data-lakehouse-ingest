@@ -1,6 +1,4 @@
 """
-File name: src/data_lakehouse_ingest/orchestrator/init_utils.py
-
 Initialization utilities for the Data Lakehouse Ingest framework.
 Handles logger setup and Spark session context initialization,
 including tenant creation, catalog switching, and configuration extraction.
@@ -8,6 +6,7 @@ including tenant creation, catalog switching, and configuration extraction.
 import logging
 from typing import Any
 from pyspark.sql import SparkSession
+from berdl_notebook_utils.spark.database import create_namespace_if_not_exists
 
 
 def init_logger(logger: logging.Logger | None) -> logging.Logger:
@@ -41,20 +40,80 @@ def init_run_context(
     logger: logging.Logger,
     loader: Any,
 ) -> dict[str, Any]:
-    tenant = loader.get_tenant()
+    """
+    Initialize the ingestion run context based on config.
+
+    Uses the JupyterHub helper `create_namespace_if_not_exists` instead of
+    SQL CREATE DATABASE statements. The behavior depends on the 'is_tenant'
+    flag in the config.
+
+    Args:
+        spark (SparkSession): Active Spark session.
+        logger (logging.Logger): Logger instance for structured output.
+        loader (Any): ConfigLoader or equivalent with get_tenant(), get_dataset(), get_tables().
+
+    Returns:
+        dict[str, Any]: Context dictionary with namespace, tables, and defaults.
+    """
+    # ----------------------------------------------------------------------
+    # Extract configuration
+    # ----------------------------------------------------------------------
+    tenant = loader.config.get("tenant")
+    dataset = loader.config.get("dataset")
+    is_tenant = bool(loader.config.get("is_tenant", False))
     tables = loader.get_tables()
 
-    logger.info(f"🔧 Loaded configuration for tenant: {tenant}")
-    logger.info(f"📋 Found {len(tables)} table(s) to process")
+    if not tenant or not dataset:
+        raise ValueError("Config must include both 'tenant' and 'dataset' fields.")
 
-    spark.sql(f"CREATE DATABASE IF NOT EXISTS `{tenant}`")
-    spark.catalog.setCurrentDatabase(tenant)
+    logger.info(f"Loaded configuration: tenant={tenant}, dataset={dataset}, is_tenant={is_tenant}")
+    logger.info(f"Found {len(tables)} table(s) to process")
 
-    # Prefer loader method if present; else an empty dict
+    # ----------------------------------------------------------------------
+    # Create namespace using JupyterHub helper
+    # ----------------------------------------------------------------------
+    try:
+        if is_tenant:
+            # Multi-tenant governed environment
+            namespace = create_namespace_if_not_exists(
+                spark,
+                namespace=dataset,
+                tenant_name=tenant,
+            )
+            logger.info(f"Tenant namespace created/accessed: {namespace}")
+        else:
+            # Personal (user-level) environment
+            namespace = create_namespace_if_not_exists(spark, dataset)
+            logger.info(f"Personal namespace created/accessed: {namespace}")
+
+        spark.catalog.setCurrentDatabase(namespace)
+
+        # Extract physical namespace path
+        try:
+            ns_info = spark.sql(f"DESCRIBE NAMESPACE EXTENDED {namespace}").collect()
+            base_path = [r.info_value for r in ns_info if r.info_name.lower() == "location"][0]
+            logger.info(f"Namespace storage location: {base_path}")
+        except Exception as e:
+            logger.warning(f"Unable to determine namespace storage location for '{namespace}': {e}")
+            base_path = None
+
+    except Exception as e:
+        logger.error(f"Failed to create or access namespace for dataset '{dataset}': {e}", exc_info=True)
+        raise
+
+    # ----------------------------------------------------------------------
+    # Extract defaults and finalize
+    # ----------------------------------------------------------------------
     format_defaults = loader.get_all_defaults() if hasattr(loader, "get_all_defaults") else {}
+
+    logger.info("Ingestion context initialized successfully.")
 
     return {
         "tenant": tenant,
+        "dataset": dataset,
+        "namespace": namespace,
+        "namespace_base_path": base_path, 
+        "is_tenant": is_tenant,
         "tables": tables,
         "format_defaults": format_defaults,
     }

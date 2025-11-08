@@ -1,6 +1,4 @@
 """
-File name: src/data_lakehouse_ingest/core.py
-
 Core orchestration module for the Data Lakehouse Ingest framework.
 Executes config-driven ingestion from Bronze (raw) to Silver (curated) Delta tables.
 Handles schema enforcement (SQL/LinkML), multi-format loading, and report generation.
@@ -56,7 +54,7 @@ def ingest(
     # --- Spark Session ---
     if spark is None:
         error_msg = (
-            "❌ SparkSession must be provided by the caller. "
+            "SparkSession must be provided by the caller. "
             "Please start a Spark session and pass it as `spark=` argument."
         )
         logger_error = logger or logging.getLogger("data_lakehouse_ingest")
@@ -66,7 +64,7 @@ def ingest(
             success=False, started_at=started_at, tables=[],
             errors=[{"phase": "spark_initialization", "error": error_msg}]
         )
-        logger_error.info("🏁 Ingestion terminated during Spark session check")
+        logger_error.info("Ingestion terminated during Spark session check")
         logger_error.info(json.dumps(report, indent=2))
         return report
 
@@ -77,18 +75,20 @@ def ingest(
     try:
         loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
     except Exception as e:
-        logger.error(f"❌ Failed to load or validate configuration: {e}", exc_info=True)
+        logger.error(f"Failed to load or validate configuration: {e}", exc_info=True)
         report = generate_report(
             success=False, started_at=started_at, tables=[],
             errors=[{"phase": "config_validation", "error": str(e)}]
         )
-        logger.info("🏁 Ingestion terminated during config validation")
+        logger.info("Ingestion terminated during config validation")
         safe_log_json(logger, report)
         return report
 
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
     tenant = ctx["tenant"]
+    namespace = ctx["namespace"]
+    namespace_base_path = ctx["namespace_base_path"]
     tables = ctx["tables"]
 
     table_reports: list[dict[str, Any]] = []
@@ -96,11 +96,20 @@ def ingest(
 
     # --- Table-level processing ---
     for table in tables:
+        table_name = table.get("name", "unknown_table")
+
+        # set dynamic table context for logger
+        if hasattr(logger, "context_filter"):
+            logger.context_filter.set_table(table_name)
+
+        logger.info(f"Processing table: {table_name}")
         try:
             report_row = process_table(
                 spark=spark,
                 logger=logger,
                 loader=loader,
+                namespace=namespace,
+                namespace_base_path=namespace_base_path,
                 tenant=tenant,
                 table=table,
                 run_started_at_iso=started_at,
@@ -124,6 +133,6 @@ def ingest(
         errors=error_list,
     )
 
-    logger.info("🏁 Ingestion complete")
+    logger.info("Ingestion complete")
     safe_log_json(logger, report)
     return report

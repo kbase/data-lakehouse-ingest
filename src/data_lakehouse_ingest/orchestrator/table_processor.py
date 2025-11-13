@@ -30,9 +30,7 @@ def process_table(
     spark: SparkSession,
     logger: logging.Logger,
     loader: Any,
-    tenant: str,
-    namespace: str,
-    namespace_base_path: str,
+    ctx: dict[str, Any],
     table: dict,
     run_started_at_iso: str,
     minio_client: Minio | None = None,
@@ -96,7 +94,10 @@ def process_table(
         >>> print(result["status"])
         success
     """
-
+    tenant = ctx["tenant"]
+    namespace = ctx["namespace"]
+    namespace_base_path = ctx["namespace_base_path"]
+    
     name = table["name"]
     bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path
@@ -109,9 +110,11 @@ def process_table(
         start_table_time = datetime.now(timezone.utc)
         process_uniprot_to_delta(
             xml_path=bronze_path,
-            namespace=tenant,
+            spark=spark,
+            namespace=namespace,
             s3_silver_base=silver_path,
-            batch_size=table.get("batch_size", 5000)
+            batch_size=table.get("batch_size", 5000),
+            minio_client=minio_client
         )
         elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 

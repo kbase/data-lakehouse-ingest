@@ -21,6 +21,8 @@ from .orchestrator.init_utils import init_logger, init_run_context
 from .orchestrator.table_processor import process_table
 from .orchestrator.error_utils import error_entry_for_exception
 
+from berdl_notebook_utils.setup_spark_session import get_spark_session
+
 
 def ingest(
     config: str | dict[str, Any],
@@ -51,25 +53,56 @@ def ingest(
     """
     started_at = datetime.now(timezone.utc).isoformat()
 
-    # --- Spark Session ---
-    if spark is None:
-        error_msg = (
-            "SparkSession must be provided by the caller. "
-            "Please start a Spark session and pass it as `spark=` argument."
-        )
-        logger_error = logger or logging.getLogger("data_lakehouse_ingest")
-        logger_error.error(error_msg)
-
-        report = generate_report(
-            success=False, started_at=started_at, tables=[],
-            errors=[{"phase": "spark_initialization", "error": error_msg}]
-        )
-        logger_error.info("Ingestion terminated during Spark session check")
-        logger_error.info(json.dumps(report, indent=2))
-        return report
-
     # --- Logger ---
+    """
+    Initialize or reuse a structured logger to ensure consistent JSON-formatted logs
+    across the entire ingestion run.
+    """
     logger = init_logger(logger)
+
+    # ----------------------------------------------------------------------
+    # Spark Session Initialization
+    # ----------------------------------------------------------------------
+    """
+    Initialize a SparkSession if not provided by the caller.
+
+    Attempts to create one via `get_spark_session()` from
+    `berdl_notebook_utils.setup_spark_session`. If the module is unavailable
+    or session creation fails, logs the error and returns a structured
+    failure report under the "spark_initialization" phase.
+    """
+    if spark is None:
+        try:
+            logger.info("No SparkSession provided — initializing via get_spark_session()")
+            spark = get_spark_session()
+        except (ImportError, ModuleNotFoundError):
+            # berdl_notebook_utils not available — fallback to explicit requirement
+            error_msg = (
+                "SparkSession must be provided by the caller. "
+                "berdl_notebook_utils.setup_spark_session not found in this environment."
+            )
+            logger.error(error_msg)
+            report = generate_report(
+                success=False,
+                started_at=started_at,
+                tables=[],
+                errors=[{"phase": "spark_initialization", "error": error_msg}],
+            )
+            safe_log_json(logger, report)
+            return report
+        except Exception as e:
+            # unexpected failure inside get_spark_session()
+            error_msg = f"Failed to initialize Spark session via get_spark_session(): {e}"
+            logger.error(error_msg, exc_info=True)
+            report = generate_report(
+                success=False,
+                started_at=started_at,
+                tables=[],
+                errors=[{"phase": "spark_initialization", "error": str(e)}],
+            )
+            safe_log_json(logger, report)
+            return report
+
 
     # --- Config Loader ---
     try:
@@ -86,9 +119,6 @@ def ingest(
 
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
-    tenant = ctx["tenant"]
-    namespace = ctx["namespace"]
-    namespace_base_path = ctx["namespace_base_path"]
     tables = ctx["tables"]
 
     table_reports: list[dict[str, Any]] = []
@@ -96,7 +126,7 @@ def ingest(
 
     # --- Table-level processing ---
     for table in tables:
-        table_name = table.get("name", "unknown_table")
+        table_name = table.get("name", "pipeline_stage")
 
         # set dynamic table context for logger
         if hasattr(logger, "context_filter"):
@@ -108,18 +138,12 @@ def ingest(
                 spark=spark,
                 logger=logger,
                 loader=loader,
-                namespace=namespace,
-                namespace_base_path=namespace_base_path,
-                tenant=tenant,
+                ctx=ctx,
                 table=table,
                 run_started_at_iso=started_at,
                 minio_client=minio_client,
             )
             table_reports.append(report_row)
-        except AnalysisException as e:
-            entry = error_entry_for_exception(table, e)
-            table_reports.append(entry)
-            error_list.append(entry)
         except Exception as e:
             entry = error_entry_for_exception(table, e)
             table_reports.append(entry)

@@ -45,7 +45,10 @@ class ErrorReport(BaseModel):
     table: str | None = Field(None, description="Table name related to the error")
     stacktrace: str | None = Field(None, description="Stack trace for debugging")
 
-
+# TODO: Extend this helper to also accept native datetime objects in addition
+# to ISO 8601 strings. This will allow core ingestion modules to keep timestamps
+# as datetime instances internally (for duration calculations) and only convert
+# them to ISO format during JSON serialization via PipelineJSONEncoder.
 def _normalize_to_utc(ts: str | None) -> datetime:
     """
     Normalize a timestamp to a timezone-aware UTC datetime object.

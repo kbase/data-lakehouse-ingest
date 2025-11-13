@@ -12,6 +12,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from .utils.json_encoder import PipelineJSONEncoder
+
+
 _logger_instance = None
 
 class PipelineContextFilter(logging.Filter):
@@ -20,23 +23,25 @@ class PipelineContextFilter(logging.Filter):
     into each log record. This enables structured logging across all components.
     """
 
-    def __init__(self, pipeline_name: str, target_table: str, schema: str):
+    def __init__(self, pipeline_name: str, schema: str):
         super().__init__()
         self.pipeline_name = pipeline_name
-        self.target_table = target_table
         self.schema = schema
+        self.target_table = "pipeline_stage"  # default
+
+    def set_table(self, table: str):
+        self.target_table = table
 
     def filter(self, record):
         record.pipeline_name = self.pipeline_name
-        record.target_table = self.target_table
         record.schema = self.schema
+        record.target_table = self.target_table
         return True
 
 def setup_logger(
     log_dir: str | Path = Path("local_logs"),
     logger_name: str = "pipeline_logger",
     pipeline_name: str = "unknown_pipeline",
-    target_table: str = "unknown_table",
     schema: str = "unknown_schema",
     log_level: str | None = None,
 ) -> logging.Logger:
@@ -105,8 +110,9 @@ def setup_logger(
     logger.addHandler(ch)
 
     # Add pipeline context filter
-    context_filter = PipelineContextFilter(pipeline_name, target_table, schema)
+    context_filter = PipelineContextFilter(pipeline_name, schema)
     logger.addFilter(context_filter)
+    logger.context_filter = context_filter
 
     # Store log file path for later inspection
     logger.log_file_path = log_file
@@ -117,14 +123,19 @@ def safe_log_json(logger: logging.Logger, data: object) -> None:
     """
     Safely log dictionaries or objects that may contain non-serializable elements.
 
-    Ensures structured logging remains readable even if some values cannot
-    be JSON-encoded (e.g., Spark objects, datetime, custom classes).
+    Uses the custom PipelineJSONEncoder to ensure that complex types such as
+    datetime, Decimal, Path, and UUID are serialized consistently (e.g., ISO 8601
+    for timestamps) and that logging never fails due to a TypeError.
 
     Args:
-        logger (logging.Logger): Logger instance to use for logging.
-        data (object): Data to be serialized and logged.
+        logger (logging.Logger): The logger instance used to output the message.
+        data (object): The data structure (usually a dict or report) to serialize
+                       and log in JSON format.
     """
     try:
-        logger.info(json.dumps(data, indent=2, default=str))
+        # Serialize using the custom encoder (handles datetime, Decimal, Path, UUID, etc.)
+        serialized = json.dumps(data, indent=2, cls=PipelineJSONEncoder)
+        logger.info(serialized)
     except Exception:
+        # Fallback to a plain string representation if serialization fails entirely
         logger.info(str(data))

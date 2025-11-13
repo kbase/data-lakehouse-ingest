@@ -598,7 +598,7 @@ def get_spark_session(namespace):
     )
     spark = configure_spark_with_delta_pip(builder).getOrCreate()
     # Ensure the target namespace (database) exists
-    spark.sql(f"CREATE DATABASE IF NOT EXISTS {namespace}")
+
     return spark
 
 

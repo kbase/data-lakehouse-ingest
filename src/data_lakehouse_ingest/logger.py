@@ -12,6 +12,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from .utils.json_encoder import PipelineJSONEncoder
+
+
 _logger_instance = None
 
 class PipelineContextFilter(logging.Filter):
@@ -24,7 +27,7 @@ class PipelineContextFilter(logging.Filter):
         super().__init__()
         self.pipeline_name = pipeline_name
         self.schema = schema
-        self.target_table = "unknown_table"  # default
+        self.target_table = "pipeline_stage"  # default
 
     def set_table(self, table: str):
         self.target_table = table
@@ -120,14 +123,19 @@ def safe_log_json(logger: logging.Logger, data: object) -> None:
     """
     Safely log dictionaries or objects that may contain non-serializable elements.
 
-    Ensures structured logging remains readable even if some values cannot
-    be JSON-encoded (e.g., Spark objects, datetime, custom classes).
+    Uses the custom PipelineJSONEncoder to ensure that complex types such as
+    datetime, Decimal, Path, and UUID are serialized consistently (e.g., ISO 8601
+    for timestamps) and that logging never fails due to a TypeError.
 
     Args:
-        logger (logging.Logger): Logger instance to use for logging.
-        data (object): Data to be serialized and logged.
+        logger (logging.Logger): The logger instance used to output the message.
+        data (object): The data structure (usually a dict or report) to serialize
+                       and log in JSON format.
     """
     try:
-        logger.info(json.dumps(data, indent=2, default=str))
+        # Serialize using the custom encoder (handles datetime, Decimal, Path, UUID, etc.)
+        serialized = json.dumps(data, indent=2, cls=PipelineJSONEncoder)
+        logger.info(serialized)
     except Exception:
+        # Fallback to a plain string representation if serialization fails entirely
         logger.info(str(data))

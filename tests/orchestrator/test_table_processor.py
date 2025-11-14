@@ -51,14 +51,16 @@ def test_process_table_success(
     mock_loader,
     table_config,
 ):
+    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=mock_loader,
-        tenant="tenant_alpha",
+        ctx=ctx,
         table=table_config,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
+
 
     # Assertions
     assert result["status"] == "success"
@@ -79,11 +81,12 @@ def test_process_table_success(
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch("data_lakehouse_ingest.orchestrator.table_processor.load_table_data", side_effect=Exception("Simulated load failure"))
 def test_process_table_data_load_failure(mock_load, mock_detect_format, mock_spark, mock_logger, mock_loader, table_config):
+    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=mock_loader,
-        tenant="tenant_alpha",
+        ctx=ctx,
         table=table_config,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
@@ -97,7 +100,7 @@ def test_process_table_data_load_failure(mock_load, mock_detect_format, mock_spa
 # ---------------------------------------------------------------------
 # UniProt special-case path
 # ---------------------------------------------------------------------
-@patch("data_lakehouse_ingest.orchestrator.table_processor.process_uniprot_to_delta")
+@patch("data_lakehouse_ingest.parsers.uniprot_ingest.process_uniprot_to_delta")
 def test_process_table_uniprot(mock_uniprot, mock_spark, mock_logger, mock_loader):
     table = {
         "name": "uniprot_sample",
@@ -108,14 +111,16 @@ def test_process_table_uniprot(mock_uniprot, mock_spark, mock_logger, mock_loade
     # Simulate data written to Delta
     mock_spark.read.format.return_value.load.return_value.count.return_value = 500
 
+    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=mock_loader,
-        tenant="tenant_beta",
+        ctx=ctx,
         table=table,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
+
 
     # Assertions
     mock_uniprot.assert_called_once()

@@ -37,4 +37,25 @@ def test_json_encoder_serializes_supported_types():
 def test_json_encoder_fallback_to_string():
     class CustomObj:
         def __str__(self):
-            retu
+            return "custom-object"
+
+    obj = CustomObj()
+
+    data = {"obj": obj}
+
+    result = json.loads(json.dumps(data, cls=PipelineJSONEncoder))
+
+    assert result["obj"] == "custom-object"
+
+
+def test_json_encoder_handles_unserializable_object():
+    # Object whose __str__() raises an exception
+    class BadObj:
+        def __str__(self):
+            raise ValueError("cannot stringify")
+
+    obj = BadObj()
+
+    result = json.loads(json.dumps({"bad": obj}, cls=PipelineJSONEncoder))
+
+    assert result["bad"] == "<Unserializable object of type BadObj>"

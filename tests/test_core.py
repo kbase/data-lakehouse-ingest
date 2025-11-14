@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.core import ingest
 
+
 # ---------------------------------------------------------------------
 # Helper: create a dummy SparkSession mock
 # ---------------------------------------------------------------------

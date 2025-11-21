@@ -75,47 +75,31 @@ def ingest(
         try:
             logger.info("No SparkSession provided — initializing via get_spark_session()")
             spark = get_spark_session()
-        except (ImportError, ModuleNotFoundError):
+        except (ImportError, ModuleNotFoundError) as e:
             # berdl_notebook_utils not available — fallback to explicit requirement
             error_msg = (
                 "SparkSession must be provided by the caller. "
                 "berdl_notebook_utils.setup_spark_session not found in this environment."
             )
-            logger.error(error_msg)
-            report = generate_report(
-                success=False,
-                started_at=started_at,
-                tables=[],
-                errors=[{"phase": "spark_initialization", "error": error_msg}],
-            )
-            safe_log_json(logger, report)
-            return report
+            return log_error(logger, error_msg, "spark_initialization", started_at, exc=e)
         except Exception as e:
             # unexpected failure inside get_spark_session()
             error_msg = f"Failed to initialize Spark session via get_spark_session(): {e}"
-            logger.error(error_msg, exc_info=True)
-            report = generate_report(
-                success=False,
-                started_at=started_at,
-                tables=[],
-                errors=[{"phase": "spark_initialization", "error": str(e)}],
-            )
-            safe_log_json(logger, report)
-            return report
-
+            return log_error(logger, error_msg, "spark_initialization", started_at, exc=e)
 
     # --- Config Loader ---
     try:
         loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
     except Exception as e:
-        logger.error(f"Failed to load or validate configuration: {e}", exc_info=True)
-        report = generate_report(
-            success=False, started_at=started_at, tables=[],
-            errors=[{"phase": "config_validation", "error": str(e)}]
-        )
+        error_msg = f"Failed to load or validate configuration: {e}"
         logger.info("Ingestion terminated during config validation")
-        safe_log_json(logger, report)
-        return report
+        return log_error(
+            logger=logger,
+            error_msg=error_msg,
+            phase="config_validation",
+            started_at=started_at,
+            exc=e,
+        )
 
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
@@ -160,3 +144,63 @@ def ingest(
     logger.info("Ingestion complete")
     safe_log_json(logger, report)
     return report
+
+def log_error(
+    logger: logging.Logger,
+    error_msg: str,
+    phase: str,
+    started_at: str,
+    exc: Exception | None = None
+) -> dict[str, Any]:
+    """
+    Log an ingestion error and generate a standardized failure report.
+
+    This helper ensures that all fatal or early-exit failures during an
+    ingestion run are logged in a consistent JSON-structured format. It logs
+    the provided error message, optionally includes full traceback details
+    when an exception is passed, and returns a minimal ingestion report
+    describing the failure.
+
+    Args:
+        logger (logging.Logger):
+            The structured logger used for emitting JSON-formatted log entries.
+        error_msg (str):
+            Human-readable description of the failure condition.
+        phase (str):
+            The ingestion phase where the failure occurred
+            (e.g., "spark_initialization", "config_validation", "table_processing").
+        started_at (str):
+            ISO-8601 timestamp marking when the ingestion run began.
+        exc (Exception | None, optional):
+            The underlying exception that triggered the failure. When provided,
+            the full traceback is logged via `exc_info=True`. Defaults to None.
+
+    Returns:
+        dict[str, Any]:
+            A standardized ingestion failure report containing:
+            - `success=False`
+            - `started_at` timestamp
+            - empty `tables` list
+            - a single entry in `errors` describing the failed phase and message
+
+    Notes:
+        - This function is used for early termination paths (e.g., Spark setup,
+          config validation) where table-level work has not begun.
+        - The returned report is always safe to serialize and is also logged via
+          `safe_log_json()` for downstream pipeline auditing.
+    """
+    if exc is not None:
+        logger.error(error_msg, exc_info=True)
+    else:
+        logger.error(error_msg)
+
+    report = generate_report(
+        success=False,
+        started_at=started_at,
+        tables=[],
+        errors=[{"phase": phase, "error": error_msg}],
+    )
+
+    safe_log_json(logger, report)
+    return report
+

@@ -1,6 +1,4 @@
 """
-File: src/data_lakehouse_ingest/orchestrator/table_processor.py
-
 Purpose:
     Provides a unified entry point for processing a single table ingestion within
     the Data Lakehouse Ingest framework.
@@ -10,9 +8,6 @@ Purpose:
       - Data loading from the Bronze layer (via Spark)
       - Schema application and column alignment
       - Writing curated data to the Silver layer in Delta format
-
-    It supports special-case handlers such as the UniProt XML parser, which bypasses
-    the standard ingestion path and uses a custom processing function.
 """
 
 from __future__ import annotations
@@ -62,7 +57,7 @@ def process_table(
                 - "mode": Write mode, e.g., "overwrite" or "append"
                 - "partition_by": Optional partition columns
                 - "drop_extra_columns": Whether to drop non-schema columns
-                - "process_with": Optional special handler (e.g., "uniprot")
+
         run_started_at_iso (str):
             ISO-8601 timestamp representing when the pipeline run began.
         minio_client (Minio | None, optional):
@@ -102,46 +97,6 @@ def process_table(
     bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path
 
-    # Special handling: custom parser (UniProt)
-    if table.get("process_with") == "uniprot":
-        from ..parsers.uniprot_ingest import process_uniprot_to_delta
-        logger.info(f"🚀 Delegating to UniProt ingestion pipeline for table: {name}")
-
-        start_table_time = datetime.now(timezone.utc)
-        process_uniprot_to_delta(
-            xml_path=bronze_path,
-            spark=spark,
-            namespace=namespace,
-            s3_silver_base=silver_path,
-            batch_size=table.get("batch_size", 5000),
-            minio_client=minio_client
-        )
-        elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
-
-        try:
-            rows_written = spark.read.format("delta").load(silver_path).count()
-        except Exception:
-            rows_written = None
-
-        return {
-            "name": name,
-            "tenant": tenant,
-            "target_table": f"{namespace}.{name}",
-            "mode": table.get("mode", "overwrite"),
-            "format": "xml",
-            "schema_source": "custom_parser",
-            "bronze_path": bronze_path,
-            "silver_path": silver_path,
-            "rows_in": None,
-            "rows_written": rows_written,
-            "rows_rejected": 0,
-            "partitions_written": None,
-            "quarantine_path": f"{silver_path}/quarantine/{start_table_time.isoformat().replace(':','-')}/",
-            "elapsed_sec": elapsed_sec,
-            "process_with": "uniprot",
-            "status": "success",
-        }
-
     # Regular CSV/TSV/JSON/XML path
     start_table_time = datetime.now(timezone.utc)
 
@@ -165,7 +120,7 @@ def process_table(
     opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
     opts["recursiveFileLookup"] = "true"
 
-    logger.info(f"📦 Processing table: {name}")
+    logger.info(f"Processing table: {name}")
     logger.info(f"   Bronze: {bronze_path}")
     logger.info(f"   Silver: {silver_path}")
 
@@ -173,7 +128,7 @@ def process_table(
     try:
         df, rows_in = load_table_data(spark, bronze_path, fmt, opts, logger)
     except Exception as e:
-        logger.error(f"❌ Failed to load data for table '{name}': {e}", exc_info=True)
+        logger.error(f"Failed to load data for table '{name}': {e}", exc_info=True)
         return {
             "name": name,
             "error": str(e),
@@ -211,7 +166,7 @@ def process_table(
     quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
-    logger.info(f"✅ Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
+    logger.info(f"Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
     return {
         "name": name,

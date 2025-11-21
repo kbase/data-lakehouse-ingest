@@ -72,7 +72,7 @@ def test_process_table_success(
     mock_load_data.assert_called_once()
     mock_apply_schema.assert_called_once()
     mock_write_to_delta.assert_called_once()
-    mock_logger.info.assert_any_call("📦 Processing table: test_table")
+    mock_logger.info.assert_any_call("Processing table: test_table")
 
 
 # ---------------------------------------------------------------------
@@ -96,35 +96,3 @@ def test_process_table_data_load_failure(mock_load, mock_detect_format, mock_spa
     assert "Simulated load failure" in result["error"]
     mock_logger.error.assert_called_once()
 
-
-# ---------------------------------------------------------------------
-# UniProt special-case path
-# ---------------------------------------------------------------------
-@patch("data_lakehouse_ingest.parsers.uniprot_ingest.process_uniprot_to_delta")
-def test_process_table_uniprot(mock_uniprot, mock_spark, mock_logger, mock_loader):
-    table = {
-        "name": "uniprot_sample",
-        "process_with": "uniprot",
-        "batch_size": 1000,
-    }
-
-    # Simulate data written to Delta
-    mock_spark.read.format.return_value.load.return_value.count.return_value = 500
-
-    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
-    result = process_table(
-        spark=mock_spark,
-        logger=mock_logger,
-        loader=mock_loader,
-        ctx=ctx,
-        table=table,
-        run_started_at_iso="2025-10-31T12:00:00Z",
-    )
-
-
-    # Assertions
-    mock_uniprot.assert_called_once()
-    assert result["status"] == "success"
-    assert result["process_with"] == "uniprot"
-    assert result["rows_written"] == 500
-    mock_logger.info.assert_any_call("🚀 Delegating to UniProt ingestion pipeline for table: uniprot_sample")

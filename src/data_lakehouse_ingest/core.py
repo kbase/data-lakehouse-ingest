@@ -66,26 +66,24 @@ def ingest(
     """
     Initialize a SparkSession if not provided by the caller.
 
-    Attempts to create one via `get_spark_session()` from
-    `berdl_notebook_utils.setup_spark_session`. If the module is unavailable
-    or session creation fails, logs the error and returns a structured
-    failure report under the "spark_initialization" phase.
+    Since `berdl_notebook_utils` is an explicit project dependency, this function
+    uses `get_spark_session()` from `berdl_notebook_utils.setup_spark_session`
+    to construct a properly configured Spark session. If Spark initialization fails,
+    the error is logged and a structured failure report is returned.
     """
     if spark is None:
+        logger.info("No SparkSession provided — initializing via get_spark_session()")
         try:
-            logger.info("No SparkSession provided — initializing via get_spark_session()")
             spark = get_spark_session()
-        except (ImportError, ModuleNotFoundError) as e:
-            # berdl_notebook_utils not available — fallback to explicit requirement
-            error_msg = (
-                "SparkSession must be provided by the caller. "
-                "berdl_notebook_utils.setup_spark_session not found in this environment."
-            )
-            return log_error(logger, error_msg, "spark_initialization", started_at, exc=e)
         except Exception as e:
-            # unexpected failure inside get_spark_session()
             error_msg = f"Failed to initialize Spark session via get_spark_session(): {e}"
-            return log_error(logger, error_msg, "spark_initialization", started_at, exc=e)
+            return log_error(
+                logger=logger,
+                error_msg=error_msg,
+                phase="spark_initialization",
+                started_at=started_at,
+                exc=e,
+            )
 
     # --- Config Loader ---
     try:

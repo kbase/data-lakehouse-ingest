@@ -9,7 +9,7 @@ description = "Minimal ingestion stub for CDMHUB/BERDLHUB notebooks"
 authors = [{ name="CDM", email="amkhan@lbl.gov" }]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 
 dependencies = [
     "boto3>=1.34.0",
@@ -17,6 +17,7 @@ dependencies = [
     "linkml>=1.9.4",
     "linkml-runtime>=1.9.5",
     "linkml-validator>=0.4.5",
+    "berdl-notebook-utils",
 ]
 
 [dependency-groups]
@@ -36,8 +37,11 @@ packages = { find = { where = ["src"] } }
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["F", "E", "W"] # minimal: pyflakes + pycodestyle
 ignore = ["E501"]        # ignore line length, handled by line-length above
+
+[tool.uv.sources]
+berdl-notebook-utils = { git = "https://github.com/BERDataLakehouse/spark_notebook.git", subdirectory = "notebook_utils" }

@@ -1,6 +1,4 @@
 """
-File name: src/logger.py
-
 Provides structured logging with contextual metadata for Data Lakehouse Ingest pipelines.
 Supports console and file output with JSON-formatted log entries.
 """
@@ -134,8 +132,7 @@ def safe_log_json(logger: logging.Logger, data: object) -> None:
     """
     try:
         # Serialize using the custom encoder (handles datetime, Decimal, Path, UUID, etc.)
-        serialized = json.dumps(data, indent=2, cls=PipelineJSONEncoder)
-        logger.info(serialized)
+        logger.info(json.dumps(data, indent=2, cls=PipelineJSONEncoder))
     except Exception:
         # Fallback to a plain string representation if serialization fails entirely
         logger.info(str(data))

@@ -44,24 +44,33 @@ def process_table(
     Args:
         spark (SparkSession):
             Active Spark session for reading and writing data.
+
         logger (logging.Logger):
             Structured logger instance with contextual metadata (pipeline, schema, table).
+
         loader (Any):
             Loader object that provides methods like `get_bronze_path()` and `get_silver_path()`.
-        tenant (str):
-            Tenant or namespace under which the Delta table will be created.
+
+        ctx (dict[str, Any]):
+            Execution context containing keys such as:
+                - "tenant": Tenant identifier
+                - "namespace": Fully qualified namespace for the Delta tables
+                - "namespace_base_path": Base path under which Silver tables will be written
+
         table (dict):
             Table configuration dictionary containing keys such as:
                 - "name": Table name
-                - "format": Input file format (optional)
-                - "mode": Write mode, e.g., "overwrite" or "append"
+                - "format": Input format override (optional)
+                - "mode": Write mode (e.g., "overwrite", "append")
                 - "partition_by": Optional partition columns
                 - "drop_extra_columns": Whether to drop non-schema columns
 
         run_started_at_iso (str):
             ISO-8601 timestamp representing when the pipeline run began.
+
         minio_client (Minio | None, optional):
             Optional MinIO client for reading schema or metadata when required.
+
 
     Returns:
         dict[str, Any]:

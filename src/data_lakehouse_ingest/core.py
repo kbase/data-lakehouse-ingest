@@ -18,7 +18,7 @@ from .config_loader import ConfigLoader
 
 # New modular helpers
 from .orchestrator.init_utils import init_logger, init_run_context
-from .orchestrator.table_processor import process_table
+from .orchestrator.table_batch_processor import process_tables
 from .orchestrator.error_utils import error_entry_for_exception
 
 from berdl_notebook_utils.setup_spark_session import get_spark_session
@@ -101,35 +101,16 @@ def ingest(
 
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
-    tables = ctx["tables"]
-
-    table_reports: list[dict[str, Any]] = []
-    error_list: list[dict[str, Any]] = []
-
+    
     # --- Table-level processing ---
-    for table in tables:
-        table_name = table.get("name", "pipeline_stage")
-
-        # set dynamic table context for logger
-        if hasattr(logger, "context_filter"):
-            logger.context_filter.set_table(table_name)
-
-        logger.info(f"Processing table: {table_name}")
-        try:
-            report_row = process_table(
-                spark=spark,
-                logger=logger,
-                loader=loader,
-                ctx=ctx,
-                table=table,
-                run_started_at_iso=started_at,
-                minio_client=minio_client,
-            )
-            table_reports.append(report_row)
-        except Exception as e:
-            entry = error_entry_for_exception(table, e)
-            table_reports.append(entry)
-            error_list.append(entry)
+    table_reports, error_list = process_tables(
+        spark=spark,
+        logger=logger,
+        loader=loader,
+        ctx=ctx,
+        started_at=started_at,
+        minio_client=minio_client,
+    )
 
     # --- Final report ---
     report = generate_report(

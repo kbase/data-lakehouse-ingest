@@ -1,0 +1,105 @@
+"""
+Batch table processing utilities for the Data Lakehouse Ingest framework.
+
+This module provides the `process_tables()` function, which coordinates the
+end-to-end processing of all tables defined in the ingestion context. It acts
+as a higher-level orchestrator above the per-table `process_table()` function,
+managing logging context, error capture, and aggregation of table-level
+reports.
+
+Responsibilities:
+    - Iterate through configured tables in the ingestion run.
+    - Apply dynamic logger context so logs include table identifiers.
+    - Delegate per-table work to `process_table()`.
+    - Capture and normalize any exceptions encountered during table processing.
+    - Produce two lists: successful/failed table reports and top-level errors.
+
+This module improves modularity by separating multi-table orchestration from
+the top-level `ingest()` function, resulting in cleaner orchestration flow.
+"""
+
+from typing import Any
+from .error_utils import error_entry_for_exception
+from .table_processor import process_table
+import logging
+from pyspark.sql import SparkSession
+from minio import Minio
+
+def process_tables(
+    spark: SparkSession,
+    logger: logging.Logger,
+    loader: Any,
+    ctx: dict,
+    started_at: str,
+    minio_client: Minio | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Process all tables defined in the ingestion context.
+
+    Iterates through the list of tables extracted from the ingestion context
+    (`ctx["tables"]`), applies per-table logging context, and delegates table-
+    level ingestion work to `process_table()`. All exceptions raised during
+    table processing are captured and converted into standardized error
+    entries using `error_entry_for_exception()`.
+
+    Args:
+        spark (SparkSession):
+            Active Spark session used for reading/writing data.
+        logger (logging.Logger):
+            Structured logger used for emitting JSON-formatted logs.
+        loader (Any):
+            The configuration loader containing resolved configuration and
+            schema information.
+        ctx (dict):
+            Ingestion context produced by `init_run_context()`. Must include
+            a `"tables"` key containing the list of table definitions.
+        started_at (str):
+            ISO-8601 timestamp marking when the ingestion run began.
+        minio_client (Minio | None, optional):
+            MinIO client used for reading data from S3-compatible sources.
+            Passed through to `process_table()`.
+
+    Returns:
+        tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+            A tuple containing:
+                - `table_reports`: List of per-table result dictionaries,
+                  each containing status, metrics, and/or error details.
+                - `error_list`: List of normalized error entries for all
+                  tables that encountered exceptions.
+
+    Notes:
+        - Each table is processed independently; a failure in one table does
+          not prevent others from being ingested.
+        - The returned lists are used by the top-level orchestrator to build
+          the final ingestion run report.
+    """
+    tables = ctx["tables"]
+    table_reports: list[dict[str, Any]] = []
+    error_list: list[dict[str, Any]] = []
+
+    for table in tables:
+        table_name = table.get("name", "pipeline_stage")
+
+        # ensure dynamic logger context
+        if hasattr(logger, "context_filter"):
+            logger.context_filter.set_table(table_name)
+
+        logger.info(f"Processing table: {table_name}")
+
+        try:
+            report_row = process_table(
+                spark=spark,
+                logger=logger,
+                loader=loader,
+                ctx=ctx,
+                table=table,
+                run_started_at_iso=started_at,
+                minio_client=minio_client,
+            )
+            table_reports.append(report_row)
+        except Exception as e:
+            entry = error_entry_for_exception(table, e)
+            table_reports.append(entry)
+            error_list.append(entry)
+
+    return table_reports, error_list

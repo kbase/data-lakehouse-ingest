@@ -98,6 +98,14 @@ def process_table(
         >>> print(result["status"])
         success
     """
+    # --- Dynamic table context and logging ---
+    table_name = table.get("name", "pipeline_stage")
+
+    if hasattr(logger, "context_filter"):
+        logger.context_filter.set_table(table_name)
+
+    logger.info(f"Processing table: {table_name}")
+
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
     namespace_base_path = ctx["namespace_base_path"]
@@ -129,7 +137,6 @@ def process_table(
     opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
     opts["recursiveFileLookup"] = "true"
 
-    logger.info(f"Processing table: {name}")
     logger.info(f"   Bronze: {bronze_path}")
     logger.info(f"   Silver: {silver_path}")
 

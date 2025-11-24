@@ -78,14 +78,6 @@ def process_tables(
     error_list: list[dict[str, Any]] = []
 
     for table in tables:
-        table_name = table.get("name", "pipeline_stage")
-
-        # ensure dynamic logger context
-        if hasattr(logger, "context_filter"):
-            logger.context_filter.set_table(table_name)
-
-        logger.info(f"Processing table: {table_name}")
-
         try:
             report_row = process_table(
                 spark=spark,

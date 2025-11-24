@@ -9,7 +9,6 @@ def test_setup_logger_creates_file_and_logs_context(tmp_path):
         log_dir=str(tmp_path),
         logger_name="test_logger",
         pipeline_name="pangenome_pipeline",
-        target_table="genome",
         schema="pangenome_schema"
     )
 
@@ -33,7 +32,7 @@ def test_setup_logger_creates_file_and_logs_context(tmp_path):
     # Verify contextual fields and message content
     assert log_entry["pipeline"] == "pangenome_pipeline"
     assert log_entry["schema"] == "pangenome_schema"
-    assert log_entry["table"] == "genome"
+    assert log_entry["table"] == "pipeline_stage"
     assert "This is a test message" in log_entry["msg"]
     assert log_entry["level"] == "INFO"
 
@@ -60,7 +59,8 @@ def test_pipeline_context_filter_injects_fields():
     assert not hasattr(record, "target_table")
     assert not hasattr(record, "schema")
 
-    f = PipelineContextFilter("pipelineA", "tableX", "schemaZ")
+    f = PipelineContextFilter("pipelineA", "schemaZ")
+    f.set_table("tableX")
     f.filter(record)
 
     # After applying the filter, the fields should exist and match expected values

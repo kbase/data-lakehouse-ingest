@@ -60,20 +60,19 @@ def init_run_context(
     # ----------------------------------------------------------------------
     tenant = loader.config.get("tenant")
     dataset = loader.config.get("dataset")
-    is_tenant = bool(loader.config.get("is_tenant", False))
     tables = loader.get_tables()
 
-    if not tenant or not dataset:
-        raise ValueError("Config must include both 'tenant' and 'dataset' fields.")
+    if not dataset:
+        raise ValueError("Config must include 'dataset' field.")
 
-    logger.info(f"Loaded configuration: tenant={tenant}, dataset={dataset}, is_tenant={is_tenant}")
+    logger.info(f"Loaded configuration: tenant={tenant}, dataset={dataset}")
     logger.info(f"Found {len(tables)} table(s) to process")
 
     # ----------------------------------------------------------------------
     # Create namespace using JupyterHub helper
     # ----------------------------------------------------------------------
     try:
-        if is_tenant:
+        if tenant:
             # Multi-tenant governed environment
             namespace = create_namespace_if_not_exists(
                 spark,
@@ -101,11 +100,6 @@ def init_run_context(
         logger.error(f"Failed to create or access namespace for dataset '{dataset}': {e}", exc_info=True)
         raise
 
-    # ----------------------------------------------------------------------
-    # Extract defaults and finalize
-    # ----------------------------------------------------------------------
-    format_defaults = loader.get_all_defaults() if hasattr(loader, "get_all_defaults") else {}
-
     logger.info("Ingestion context initialized successfully.")
 
     return {
@@ -113,7 +107,5 @@ def init_run_context(
         "dataset": dataset,
         "namespace": namespace,
         "namespace_base_path": base_path, 
-        "is_tenant": is_tenant,
         "tables": tables,
-        "format_defaults": format_defaults,
     }

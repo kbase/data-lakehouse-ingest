@@ -6,11 +6,9 @@ and writing curated data to Silver Delta tables.
 Provides a unified interface for reading CSV, TSV, JSON, and XML formats,
 and ensures consistent creation and registration of Delta tables in Spark.
 """
-from typing import Tuple
 import logging
 from pyspark.sql import SparkSession
 
-# reuse your existing loaders
 from ..loaders.json_loader import load_json_data
 from ..loaders.xml_loader import load_xml_data
 from ..loaders.dsv_loader import load_csv_data, load_tsv_data
@@ -49,7 +47,7 @@ def load_table_data(
     fmt: str,
     opts: dict,
     logger: logging.Logger,
-) -> Tuple[object, int]:
+) -> tuple[object, int]:
     """
     Loads a DataFrame and returns (df, rows_in).
     """

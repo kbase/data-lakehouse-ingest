@@ -7,12 +7,11 @@ Provides a unified interface for reading CSV, TSV, JSON, and XML formats,
 and ensures consistent creation and registration of Delta tables in Spark.
 """
 import logging
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 
-from ..loaders.json_loader import load_json_data
-from ..loaders.xml_loader import load_xml_data
-from ..loaders.dsv_loader import load_csv_data, load_tsv_data
-
+from data_lakehouse_ingest.loaders.json_loader import load_json_data
+from data_lakehouse_ingest.loaders.xml_loader import load_xml_data
+from data_lakehouse_ingest.loaders.dsv_loader import load_csv_data, load_tsv_data
 
 def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     """
@@ -69,7 +68,7 @@ def load_table_data(
 
 
 def write_to_delta(
-    df,
+    df: DataFrame,
     spark: SparkSession,
     namespace: str,
     namespace_base_path: str,

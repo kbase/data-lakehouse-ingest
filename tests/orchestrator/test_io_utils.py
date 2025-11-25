@@ -19,9 +19,8 @@ def test_write_to_delta_creates_table(mock_spark):
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_df.write.format.return_value.mode.return_value = mock_df.write
-    rows = write_to_delta(mock_df, mock_spark, "tenant", "t1", "/tmp/silver", None, "overwrite", mock_logger)
+    rows = write_to_delta(mock_df, mock_spark, "tenant", "t1", "personal_test_table", "/tmp/silver", None, "overwrite", mock_logger)
 
     # Verify info was logged with the expected keyword
     info_calls = [str(call) for call in mock_logger.info.call_args_list]
-    assert any("✅ Wrote" in call for call in info_calls)
-
+    assert any("Wrote" in call for call in info_calls)

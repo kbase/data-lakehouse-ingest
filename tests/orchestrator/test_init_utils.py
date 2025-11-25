@@ -24,10 +24,8 @@ def test_init_run_context_creates_tenant_and_tables():
     mock_loader.config = {
         "tenant": "demo_tenant",
         "dataset": "demo_dataset",
-        "is_tenant": True,
     }
     mock_loader.get_tables.return_value = [{"name": "table1"}]
-    mock_loader.get_all_defaults.return_value = {"csv": {"header": True}}
     mock_logger = MagicMock()
 
     # Run function
@@ -38,6 +36,7 @@ def test_init_run_context_creates_tenant_and_tables():
     assert ctx["dataset"] == "demo_dataset"
     assert ctx["namespace"] == "demo_dataset"
     assert ctx["tables"] == [{"name": "table1"}]
+    assert ctx["namespace_base_path"] == "s3a://dummy-path"
 
     # Validate side effects
     init_utils.create_namespace_if_not_exists.assert_called_once()

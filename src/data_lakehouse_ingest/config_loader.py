@@ -169,7 +169,7 @@ class ConfigLoader:
         Raises:
             ValueError: If required keys are missing or invalid.
         """
-        required_top = ["tenant", "dataset", "paths", "tables"]
+        required_top = ["dataset", "paths", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
             self.logger.error(f"Missing required top-level keys: {missing_top}")
@@ -195,9 +195,6 @@ class ConfigLoader:
         # Optional but useful warnings
         if "defaults" not in self.config:
             self.logger.warning("No 'defaults' section found in config — using built-in defaults.")
-
-        if "is_tenant" not in self.config:
-            self.logger.warning("'is_tenant' flag not found in config; defaulting to False.")
 
         self.logger.info("Minimal config validation passed")
 
@@ -288,14 +285,19 @@ class ConfigLoader:
         return {"header": False, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False}
 
     def summarize(self) -> dict[str, Any]:
-        return {
-            "tenant": self.get_tenant(),
+        summary = {
             "dataset": self.get_dataset(),
-            "is_tenant": self.is_tenant(),
             "num_tables": len(self.get_tables()),
             "bronze_base": self.config["paths"]["bronze_base"],
             "silver_base": self.config["paths"]["silver_base"],
         }
+
+        # Add tenant only if present
+        tenant = self.get_tenant()
+        if tenant:
+            summary["tenant"] = tenant
+
+        return summary
 
     def get_full_config(self) -> dict[str, Any]:
         return self.config

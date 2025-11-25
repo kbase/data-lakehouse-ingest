@@ -1,6 +1,4 @@
 """
-File: src/data_lakehouse_ingest/config_loader.py
-
 Purpose:
     Provides a configuration loader for the Data Lakehouse Ingest framework.
     Supports reading configuration from:
@@ -17,7 +15,6 @@ from __future__ import annotations
 from typing import Any
 import json
 import logging
-import os
 from minio.error import S3Error
 from pathlib import Path
 from minio import Minio
@@ -124,7 +121,7 @@ class ConfigLoader:
             except Exception as e:
                 self.logger.error(f"Invalid inline JSON configuration: {e}", exc_info=True)
                 raise ValueError(f"Invalid configuration source: {e}")
-        
+
         # --- Local file ---
         requested_path = Path(cfg).resolve()
         if not str(requested_path).startswith(str(SAFE_CONFIG_DIR)):
@@ -137,7 +134,7 @@ class ConfigLoader:
             )
             self.logger.error(msg)
             raise ValueError(msg)
-        
+
         self.logger.info(f"Loading configuration from local file: {requested_path}")
 
         # Safe to open now
@@ -172,7 +169,7 @@ class ConfigLoader:
         Raises:
             ValueError: If required keys are missing or invalid.
         """
-        required_top = ["tenant", "dataset", "paths", "tables"]
+        required_top = ["dataset", "paths", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
             self.logger.error(f"Missing required top-level keys: {missing_top}")
@@ -205,12 +202,13 @@ class ConfigLoader:
     # Accessors
     # ----------------------------------------------------------------------
     def get_tenant(self) -> str:
-        tenant = self.config["tenant"]
-        dataset = self.config.get("dataset", "")
-        return tenant.replace("${dataset}", dataset)
+        return self.config.get("tenant", "")
 
     def get_dataset(self) -> str:
         return self.config.get("dataset", "")
+
+    def is_tenant(self) -> bool:
+        return bool(self.config.get("is_tenant", False))
 
     def get_paths(self) -> dict[str, str]:
         return self.config.get("paths", {})
@@ -221,7 +219,12 @@ class ConfigLoader:
         )
 
     def get_tables(self) -> list[dict[str, Any]]:
-        return self.config.get("tables", [])
+        tables = self.config.get("tables", [])
+        enabled_tables = [t for t in tables if t.get("enabled", True)]
+        disabled_count = len(tables) - len(enabled_tables)
+        if disabled_count > 0:
+            self.logger.info(f"{disabled_count} table(s) are disabled and will be skipped.")
+        return enabled_tables
 
     def get_table(self, name: str) -> dict[str, Any] | None:
         for t in self.config.get("tables", []):
@@ -229,6 +232,16 @@ class ConfigLoader:
                 return t
         self.logger.warning(f"Requested table '{name}' not found in configuration.")
         return None
+
+    def is_table_enabled(self, name: str) -> bool:
+        """
+        Check if a table is marked as enabled in the config.
+        Defaults to True if flag is missing.
+        """
+        table = self.get_table(name)
+        if table is None:
+            return False
+        return bool(table.get("enabled", True))
 
     def get_bronze_path(self, table_name: str) -> str | None:
         """
@@ -256,7 +269,6 @@ class ConfigLoader:
         self.logger.error(msg)
         raise ValueError(msg)
 
-
     def get_silver_path(self, table_name: str) -> str:
         base = self.config["paths"]["silver_base"].rstrip("/")
         return f"{base}/{table_name}"
@@ -273,13 +285,19 @@ class ConfigLoader:
         return {"header": False, "delimiter": "\t" if fmt == "tsv" else ",", "inferSchema": False}
 
     def summarize(self) -> dict[str, Any]:
-        return {
-            "tenant": self.get_tenant(),
+        summary = {
             "dataset": self.get_dataset(),
             "num_tables": len(self.get_tables()),
             "bronze_base": self.config["paths"]["bronze_base"],
             "silver_base": self.config["paths"]["silver_base"],
         }
+
+        # Add tenant only if present
+        tenant = self.get_tenant()
+        if tenant:
+            summary["tenant"] = tenant
+
+        return summary
 
     def get_full_config(self) -> dict[str, Any]:
         return self.config

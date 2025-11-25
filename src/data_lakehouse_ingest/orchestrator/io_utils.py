@@ -63,7 +63,6 @@ def load_table_data(
     loader_fn = fmt_to_loader[fmt]
     df = loader_fn(spark, bronze_path, opts, logger)
     rows_in = df.count()
-    logger.info(f"Loaded {rows_in} {fmt.upper()} records from {bronze_path}")
     return df, rows_in
 
 

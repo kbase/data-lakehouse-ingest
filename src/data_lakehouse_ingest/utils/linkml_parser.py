@@ -22,8 +22,8 @@ def load_linkml_schema(
     spark: SparkSession,
     path: str,
     logger: logging.Logger,
-    minio_client: Any = None
-) -> Dict[str, str]:
+    minio_client: object | None = None,
+) -> dict[str, str]:
     """
     Load and parse a LinkML YAML schema, returning a dict mapping columns to
     Spark-compatible SQL types.
@@ -114,7 +114,7 @@ def load_linkml_schema(
     class_name = all_classes[0]
     class_def = view.get_class(class_name)
 
-    type_map = {
+    type_map: dict[str, str] = {
         "integer": "INT",
         "float": "DOUBLE",
         "double": "DOUBLE",
@@ -124,11 +124,11 @@ def load_linkml_schema(
         "date": "DATE",
     }
 
-    schema_cols = {}
+    schema_cols: dict[str, str] = {}
     for slot_name in class_def.slots:
-        s = view.induced_slot(slot_name, class_name)
-        spark_type = type_map.get(s.range, "STRING")
-        schema_cols[s.name] = spark_type
+        slot = view.induced_slot(slot_name, class_name)
+        spark_type = type_map.get(slot.range, "STRING")
+        schema_cols[slot.name] = spark_type
 
     schema_sql = ", ".join([f"{c} {t}" for c, t in schema_cols.items()])
     logger.info(f"Derived schema_sql from LinkML: {schema_sql}")

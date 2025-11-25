@@ -1,10 +1,19 @@
+import pytest
 from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_table_data, write_to_delta
 
-def test_detect_format_by_extension():
-    assert detect_format("file.json", None) == "json"
-    assert detect_format("file.tsv", None) == "tsv"
-    assert detect_format("file.csv", None) == "csv"
+@pytest.mark.parametrize(
+    "filename,format_hint,expected",
+    [
+        ("file.json", None, "json"),
+        ("file.tsv", None, "tsv"),
+        ("file.csv", None, "csv"),
+        ("file.xml", None, "xml"),
+        ("file.unknown", None, "csv"),  # default fallback from detect_format()
+    ],
+)
+def test_detect_format_by_extension(filename, format_hint, expected):
+    assert detect_format(filename, format_hint) == expected
 
 @patch("data_lakehouse_ingest.orchestrator.io_utils.load_json_data")
 def test_load_table_data_uses_correct_loader(mock_loader):

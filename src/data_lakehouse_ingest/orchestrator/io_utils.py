@@ -34,6 +34,17 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
         - Defaults to "csv" when no recognizable extension is found.
         - Ensures consistent downstream loader selection in ingestion pipelines.
     """
+
+    # TODO: Explore using python-magic or content-based format detection.
+    #
+    # Current behavior:
+    #   - Relies solely on file extensions (csv, tsv, json, xml).
+    #   - Explicit format always overrides auto-detection.
+    #
+    # Future improvement:
+    #   - Use `python-magic` or similar libraries to inspect file headers
+    #     instead of relying only on extensions.
+    
     if explicit_fmt:
         return explicit_fmt
     ext = bronze_path.split(".")[-1].lower()

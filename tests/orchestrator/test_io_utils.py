@@ -10,6 +10,7 @@ from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_tabl
         ("file.csv", None, "csv"),
         ("file.xml", None, "xml"),
         ("file.unknown", None, "csv"),  # default fallback from detect_format()
+        ("file", None, "csv"), # no extension → fallback to csv
     ],
 )
 def test_detect_format_by_extension(filename, format_hint, expected):

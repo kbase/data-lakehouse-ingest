@@ -4,16 +4,19 @@ from unittest.mock import MagicMock, patch
 from pyspark.sql import SparkSession
 from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns
 
-@patch("data_lakehouse_ingest.orchestrator.schema_utils.load_linkml_schema")
-def test_resolve_schema_uses_linkml(mock_load):
-    mock_load.return_value = {"id": "STRING", "name": "STRING"}
-    table = {"name": "t1", "linkml_schema": "path/to/schema"}
+def test_resolve_schema_falls_back_when_linkml_present():
+    table = {
+        "name": "t1",
+        "linkml_schema": "path/to/schema",
+        "schema_sql": "id STRING, name STRING"
+    }
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
     schema_sql, source = resolve_schema(mock_spark, table, mock_logger)
-    assert "id STRING" in schema_sql
-    assert source == "linkml"
+
+    assert schema_sql == "id STRING, name STRING"
+    assert source == "fallback_sql"
 
 def test_apply_schema_columns_renames_columns_correctly():
     spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()

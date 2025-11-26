@@ -3,20 +3,16 @@ Schema management utilities for the Data Lakehouse Ingest framework.
 Handles schema resolution (LinkML or inline SQL) and column alignment for ingested DataFrames.
 Provides helpers to enforce consistent structure between raw data and curated Delta tables.
 """
-from typing import Tuple
 from minio import Minio
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 import logging
-
-from ..utils.linkml_parser import load_linkml_schema
-
 
 def resolve_schema(
     spark: SparkSession,
-    table: dict,
+    table: dict[str, object],
     logger: logging.Logger,
     minio_client: Minio | None = None,
-) -> Tuple[str | None, str]:
+) -> tuple[str | None, str]:
     """
     Resolve the schema definition for a given table.
 
@@ -49,24 +45,18 @@ def resolve_schema(
     """
     schema_sql = table.get("schema_sql")
     linkml_schema = table.get("linkml_schema")
-    schema_source = "inferred"
 
     if linkml_schema:
-        logger.info(f"🧬 Using LinkML schema for table {table.get('name')}"
-                    " (takes precedence over schema_sql)")
-        try:
-            schema_cols = load_linkml_schema(spark, linkml_schema, logger, minio_client=minio_client)
-            schema_sql = ", ".join([f"{c} {t}" for c, t in schema_cols.items()])
-            logger.info(f"Derived schema_sql from LinkML for {table.get('name')}: {schema_sql}")
-            return schema_sql, "linkml"
-        except Exception as e:
-            logger.error(f"Failed to parse LinkML schema for {table.get('name')}: {e}", exc_info=True)
-            if schema_sql:
-                logger.warning(f"Falling back to inline schema_sql for {table.get('name')}.")
-                return schema_sql, "fallback_sql"
-            else:
-                logger.warning("No schema_sql fallback available. Using inferred schema.")
-                return None, "inferred"
+        logger.info(
+            f"LinkML schema detected for table {table.get('name')} "
+            "(feature not implemented yet; falling back)"
+        )
+        # TODO: Implement LinkML schema parsing once linkml_parser is ready
+        if schema_sql:
+            return schema_sql, "fallback_sql"
+        else:
+            logger.warning("No schema_sql fallback available. Using inferred schema.")
+            return None, "inferred"
 
     if schema_sql:
         return schema_sql, "schema_sql"
@@ -75,7 +65,7 @@ def resolve_schema(
 
 
 def apply_schema_columns(
-    df,
+    df: DataFrame,
     schema_sql: str | None,
     logger: logging.Logger,
     drop_extra_columns: bool = False,

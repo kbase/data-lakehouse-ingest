@@ -77,6 +77,12 @@ def write_to_delta(
     mode: str,
     logger: logging.Logger,
 ) -> int:
+    # TODO: Explore replacing explicit `table_path` writes with a catalog-driven approach.
+    #
+    # Goal:
+    #   Eliminate the need to manually construct and manage table paths (namespace_base_path/name)
+    #   by allowing Spark to handle initial table creation and location assignment.
+    
     # Construct deterministic table path inside namespace storage location
     table_path = f"{namespace_base_path}/{name}"
 

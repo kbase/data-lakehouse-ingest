@@ -17,8 +17,8 @@ def resolve_schema(
     Resolve the schema definition for a given table.
 
     Current behavior (LinkML not yet supported):
-        - If a LinkML schema path is provided, the function logs that LinkML
-          is not implemented and falls back to `schema_sql` if available.
+        - If a LinkML schema path is provided, the function raises
+          NotImplementedError (LinkML support not implemented yet).
         - If `schema_sql` is provided (and no LinkML schema), it is returned.
         - If neither is provided, the schema is treated as inferred.
 
@@ -49,16 +49,13 @@ def resolve_schema(
     linkml_schema = table.get("linkml_schema")
 
     if linkml_schema:
-        logger.info(
-            f"LinkML schema detected for table {table.get('name')} "
-            "(feature not implemented yet; falling back)"
+        msg = (
+            f"LinkML schema provided for table '{table.get('name')}', "
+            "but LinkML schema parsing is not implemented yet."
         )
+        logger.error(msg)
+        raise NotImplementedError(msg)
         # TODO: Implement LinkML schema parsing once linkml_parser is ready
-        if schema_sql:
-            return schema_sql, "fallback_sql"
-        else:
-            logger.warning("No schema_sql fallback available. Using inferred schema.")
-            return None, "inferred"
 
     if schema_sql:
         return schema_sql, "schema_sql"

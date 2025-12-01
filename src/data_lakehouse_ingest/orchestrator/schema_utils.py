@@ -16,32 +16,34 @@ def resolve_schema(
     """
     Resolve the schema definition for a given table.
 
-    Determines whether to use a LinkML schema or a provided inline SQL schema
-    (`schema_sql`), falling back to an inferred schema if neither is available.
-
-    If a LinkML schema is defined, it takes precedence over `schema_sql`. In that
-    case, the schema is parsed and converted into a Spark-compatible SQL string.
+    Current behavior (LinkML not yet supported):
+        - If a LinkML schema path is provided, the function logs that LinkML
+          is not implemented and falls back to `schema_sql` if available.
+        - If `schema_sql` is provided (and no LinkML schema), it is returned.
+        - If neither is provided, the schema is treated as inferred.
 
     Args:
-        spark (SparkSession): Active Spark session used for schema parsing.
-        table (dict): Table definition dictionary containing schema fields
-            such as "schema_sql" and/or "linkml_schema".
-        logger (logging.Logger): Logger for structured information and errors.
-        minio_client (Minio | None): Optional MinIO client used to fetch LinkML
-            schema files from S3-compatible storage.
+        spark (SparkSession): Active Spark session (unused until LinkML is implemented).
+        table (dict): Full table definition from the ingestion config. 
+            This dict may include many fields (e.g., name, bronze_path, enabled, 
+            schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.). 
+            Only the schema-related fields are used in this function.
+        logger (logging.Logger): Logger for reporting resolution decisions.
+        minio_client (Minio | None): Placeholder for future LinkML support.
 
     Returns:
-        Tuple[str | None, str]: A tuple containing:
+        Tuple[str | None, str]:
             - schema_sql (str | None): The resolved SQL-style schema string,
-              e.g. "id INT, name STRING".
-            - schema_source (str): The source of the schema, one of:
-                {"linkml", "schema_sql", "fallback_sql", "inferred", "custom_parser"}.
+              or None if inferred.
+            - schema_source (str): One of:
+                - "fallback_sql": LinkML was provided but not supported, SQL used instead.
+                - "schema_sql": SQL schema was provided and used.
+                - "inferred": No schema provided; caller should infer schema.
 
     Notes:
-        - LinkML schema takes precedence and is converted into SQL syntax.
-        - If LinkML parsing fails but a SQL schema exists, the function falls
-          back to "fallback_sql".
-        - If neither schema is defined, returns (None, "inferred").
+        - LinkML parsing is not implemented yet. When a LinkML path is present,
+          the function does NOT attempt to parse it and instead falls back to SQL
+          or inference. This behavior will change once LinkML support is added.
     """
     schema_sql = table.get("schema_sql")
     linkml_schema = table.get("linkml_schema")

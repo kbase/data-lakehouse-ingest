@@ -46,9 +46,18 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     #     instead of relying only on extensions.
     
     if explicit_fmt:
-        return explicit_fmt
+        return explicit_fmt.lower()
+
+    # Map file extensions to formats
+    extension_map = {
+        "csv": "csv",
+        "tsv": "tsv",
+        "json": "json",
+        "xml": "xml",
+    }
+
     ext = bronze_path.split(".")[-1].lower()
-    return "xml" if ext == "xml" else ("json" if ext == "json" else ("tsv" if ext == "tsv" else "csv"))
+    return extension_map.get(ext, "csv")  # default fallback
 
 
 def load_table_data(

@@ -1,6 +1,6 @@
 """
 Schema management utilities for the Data Lakehouse Ingest framework.
-Handles schema resolution (LinkML or inline SQL) and column alignment for ingested DataFrames.
+Handles schema resolution using inline SQL and column alignment for ingested DataFrames.
 Provides helpers to enforce consistent structure between raw data and curated Delta tables.
 """
 from minio import Minio

@@ -6,6 +6,13 @@ Provides helpers to enforce consistent structure between raw data and curated De
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
 import logging
+from enum import Enum
+
+class SchemaSource(Enum):
+    """Enum describing the origin of a resolved schema."""
+    SCHEMA_SQL = "schema_sql"
+    INFERRED = "inferred"
+
 
 def resolve_schema(
     spark: SparkSession,
@@ -32,7 +39,7 @@ def resolve_schema(
         minio_client (Minio | None): Placeholder for future LinkML support.
 
     Returns:
-        Tuple[str | None, str]:
+        tuple[str | None, str]:
             - schema_sql (str | None): The resolved SQL-style schema string,
               or None if inferred.
             - schema_source (str): One of:
@@ -58,9 +65,9 @@ def resolve_schema(
         # TODO: Implement LinkML schema parsing once linkml_parser is ready
 
     if schema_sql:
-        return schema_sql, "schema_sql"
+        return schema_sql, SchemaSource.SCHEMA_SQL
 
-    return None, "inferred"
+    return None, SchemaSource.INFERRED
 
 
 def apply_schema_columns(

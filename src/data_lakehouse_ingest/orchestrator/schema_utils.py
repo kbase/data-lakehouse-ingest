@@ -85,9 +85,10 @@ def apply_schema_columns(
     the function becomes a no-op and simply returns the input DataFrame unchanged.
 
     When a schema string *is* provided, the function attempts to align the
-    DataFrame's columns to match the names (and order) specified in `schema_sql`.
-    If extra columns appear in the data, they can optionally be dropped before
-    renaming.
+    DataFrame's columns by **renaming** them to match the column names defined in
+    `schema_sql`. The function does not reorder columns; it preserves the existing
+    DataFrame column order. If extra columns appear in the data, they can
+    optionally be dropped before renaming.
 
     Args:
         df (pyspark.sql.DataFrame): The input DataFrame to adjust.

@@ -1,6 +1,4 @@
 """
-File name: src/data_lakehouse_ingest/orchestrator/error_utils.py
-
 Error handling utilities for the Data Lakehouse Ingest framework.
 Provides helper functions to generate structured error entries
 for inclusion in ingestion reports and logs.
@@ -10,10 +8,7 @@ table-level processing, ensuring consistent error reporting across
 all stages of the ingestion pipeline.
 """
 
-from typing import Dict
-
-
-def error_entry_for_exception(table: dict, exc: Exception) -> Dict:
+def error_entry_for_exception(table: dict, exc: Exception) -> dict[str, str]:
     """
     Create a standardized error entry dictionary for a failed table operation.
 
@@ -27,7 +22,7 @@ def error_entry_for_exception(table: dict, exc: Exception) -> Dict:
         exc (Exception): The caught exception instance representing the failure.
 
     Returns:
-        Dict: A dictionary containing:
+        dict[str, str]: A dictionary containing:
             - "name": Table name (or "<unknown>" if missing).
             - "error": Exception message as a string.
             - "status": Always set to "failed".

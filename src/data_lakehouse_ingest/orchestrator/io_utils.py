@@ -1,0 +1,133 @@
+"""
+Input/output utilities for the Data Lakehouse Ingest framework.
+Handles file format detection, data loading from Bronze sources,
+and writing curated data to Silver Delta tables.
+
+Provides a unified interface for reading CSV, TSV, JSON, and XML formats,
+and ensures consistent creation and registration of Delta tables in Spark.
+"""
+import logging
+from pyspark.sql import SparkSession, DataFrame
+
+from data_lakehouse_ingest.loaders.json_loader import load_json_data
+from data_lakehouse_ingest.loaders.xml_loader import load_xml_data
+from data_lakehouse_ingest.loaders.dsv_loader import load_csv_data, load_tsv_data
+
+def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
+    """
+    Detect the input file format for a given Bronze layer path.
+
+    Determines the file format based on either an explicit configuration
+    value (`explicit_fmt`) or by inspecting the file extension.
+
+    Supported extensions: `.csv`, `.tsv`, `.json`, `.xml`.
+
+    Args:
+        bronze_path (str): Full S3/local path to the input data file.
+        explicit_fmt (str | None): Optional explicit format (csv, tsv, json, xml).
+
+    Returns:
+        str: The detected format name ("csv", "tsv", "json", or "xml").
+
+    Notes:
+        - Explicit format overrides file extension detection.
+        - Defaults to "csv" when no recognizable extension is found.
+        - Ensures consistent downstream loader selection in ingestion pipelines.
+    """
+
+    # TODO: Explore using python-magic or content-based format detection.
+    #
+    # Current behavior:
+    #   - Relies solely on file extensions (csv, tsv, json, xml).
+    #   - Explicit format always overrides auto-detection.
+    #
+    # Future improvement:
+    #   - Use `python-magic` or similar libraries to inspect file headers
+    #     instead of relying only on extensions.
+    
+    if explicit_fmt:
+        return explicit_fmt.lower()
+
+    # Map file extensions to formats
+    extension_map = {
+        "csv": "csv",
+        "tsv": "tsv",
+        "json": "json",
+        "xml": "xml",
+    }
+
+    ext = bronze_path.split(".")[-1].lower()
+    return extension_map.get(ext, "csv")  # default fallback
+
+
+def load_table_data(
+    spark: SparkSession,
+    bronze_path: str,
+    fmt: str,
+    opts: dict,
+    logger: logging.Logger,
+) -> tuple[object, int]:
+    """
+    Loads a DataFrame and returns (df, rows_in).
+    """
+    fmt_to_loader = {
+        "json": load_json_data,
+        "xml": load_xml_data,
+        "csv": load_csv_data,
+        "tsv": load_tsv_data,
+    }
+
+    if fmt not in fmt_to_loader:
+        raise ValueError(f"Unsupported file format '{fmt}'")
+
+    loader_fn = fmt_to_loader[fmt]
+    df = loader_fn(spark, bronze_path, opts, logger)
+    rows_in = df.count()
+    return df, rows_in
+
+
+def write_to_delta(
+    df: DataFrame,
+    spark: SparkSession,
+    namespace: str,
+    namespace_base_path: str,
+    name: str,
+    silver_path: str,
+    partition_by: str | list[str] | None,
+    mode: str,
+    logger: logging.Logger,
+) -> int:
+    # TODO: Explore replacing explicit `table_path` writes with a catalog-driven approach.
+    #
+    # Goal:
+    #   Eliminate the need to manually construct and manage table paths (namespace_base_path/name)
+    #   by allowing Spark to handle initial table creation and location assignment.
+    
+    # Construct deterministic table path inside namespace storage location
+    table_path = f"{namespace_base_path}/{name}"
+
+    logger.info(f"Resolved Delta target path: {table_path}")
+
+    # Write (with overwriteSchema only for overwrite mode)
+    writer = df.write.format("delta").mode(mode)
+
+    if mode == "overwrite":
+        writer = writer.option("overwriteSchema", "true")
+
+    if partition_by:
+        writer = writer.partitionBy(partition_by)
+
+    writer.save(table_path)
+
+    # Register table if missing (no schema overwrite here!)
+    spark.sql(f"""
+        CREATE TABLE IF NOT EXISTS `{namespace}`.`{name}`
+        USING DELTA
+        LOCATION '{table_path}'
+    """)
+
+    # Count and log rows
+    rows_written = spark.read.format("delta").load(table_path).count()
+    logger.info(f"Wrote {rows_written} rows → {namespace}.{name} @ {table_path}")
+
+    return rows_written

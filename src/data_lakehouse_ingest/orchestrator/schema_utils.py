@@ -74,71 +74,90 @@ def apply_schema_columns(
     df: DataFrame,
     schema_sql: str | None,
     logger: logging.Logger,
-    drop_extra_columns: bool = False,
 ):
     """
-    Align DataFrame columns with a provided SQL-style schema definition.
+    Align DataFrame columns using a provided SQL-style schema definition.
 
-    This function is intentionally safe to call even when no schema is provided.
-    In the ingestion pipeline, `apply_schema_columns()` is invoked unconditionally
-    so every table follows the same processing path. When `schema_sql` is None,
-    the function becomes a no-op and simply returns the input DataFrame unchanged.
+    This function standardizes column alignment for ingested DataFrames by
+    interpreting the SQL-style schema (schema_sql) as the *authoritative* column
+    ordering and set of expected columns. Alignment is performed using
+    name-based matching—no positional renaming occurs—ensuring that values from
+    the raw data file map to the correct columns even when the file's header
+    order differs from the schema definition.
 
-    When a schema string *is* provided, the function attempts to align the
-    DataFrame's columns by **renaming** them to match the column names defined in
-    `schema_sql`. The function does not reorder columns; it preserves the existing
-    DataFrame column order. If extra columns appear in the data, they can
-    optionally be dropped before renaming.
+    Behavior overview:
+        • When `schema_sql` is None:
+            - No schema alignment is performed.
+            - The DataFrame is returned unchanged.
+            - This corresponds to the “inferred schema” path, where the ingestion
+            pipeline relies on Spark's natural column order (from file headers).
+
+        • When `schema_sql` is provided:
+            - Column order in the output DataFrame follows the order listed
+            in schema_sql.
+            - Columns are selected by name (df.select), avoiding silent positional
+            mismatches.
+            - Extra columns present in the data but not in schema_sql are ignored
+            (excluded automatically by the projection).
+            - Missing columns cause an immediate failure via ValueError, preventing
+            ingestion of incomplete or corrupted datasets.
+            - No type enforcement is performed here; only column selection
+            and ordering are handled.
+
+    This design ensures that:
+        - Users can specify schema_sql columns in any order, independent of the raw
+        data file's header order.
+        - Column mismatches are detected reliably.
+        - No silent column swaps or implicit type changes occur.
+        - Schema inference happens only when schema_sql is not defined.
 
     Args:
-        df (pyspark.sql.DataFrame): The input DataFrame to adjust.
-        schema_sql (str | None): The schema string used for alignment, e.g.
-            "id INT, name STRING, age INT". If None, the DataFrame is returned unchanged.
-        logger (logging.Logger): Logger for schema application details.
-        drop_extra_columns (bool, optional): Whether to drop extra columns not
-            present in the schema before renaming. Defaults to False.
+        df (pyspark.sql.DataFrame):
+            The input DataFrame loaded from raw/bronze data.
+        schema_sql (str | None):
+            SQL-style schema definition, e.g.,
+                "id INT, name STRING, age INT".
+            Determines column order and the required set of columns.
+            If None, no alignment is applied.
+        logger (logging.Logger):
+            Logger used to report alignment decisions and mismatch warnings.
 
     Returns:
-        pyspark.sql.DataFrame: A DataFrame with columns renamed (and optionally filtered)
-        to align with the given schema.
-
-    Notes:
-        - Renaming only occurs when the number of columns matches exactly.
-        - If counts differ, a warning is logged and no renaming is performed.
-        - This function does not enforce column types, only names.
-        - Setting `drop_extra_columns=True` is useful when the source data
-          contains additional fields not defined in the target schema.
+        pyspark.sql.DataFrame:
+            If schema_sql is provided:
+                A DataFrame ordered according to schema_sql and containing only
+                those columns.
+            If schema_sql is None:
+                The original DataFrame, unchanged.
     """
+    # No schema provided → return as-is
     if not schema_sql:
+        logger.info("No schema_sql provided; skipping schema alignment.")
         return df
 
+    # Extract column names from schema definition
     target_cols = [x.strip().split(" ")[0] for x in schema_sql.split(",")]
     current_cols = df.columns
 
-    # Determine column differences
-    extra_cols = [c for c in current_cols if c not in target_cols]
+    # Identify mismatches
     missing_cols = [c for c in target_cols if c not in current_cols]
+    extra_cols = [c for c in current_cols if c not in target_cols]
 
-    # Log column differences ALWAYS
-    if extra_cols or missing_cols:
+    # Missing columns → raise error to avoid corrupted data
+    if missing_cols:
+        logger.error(f"Missing required columns for schema alignment: {missing_cols}")
+        raise ValueError(f"Cannot apply schema: missing columns: {missing_cols}")
+
+    # Log extra columns (they will be dropped automatically via select)
+    if extra_cols:
         logger.warning(
-            "Column mismatch detected:\n"
-            f"   Extra columns in data: {extra_cols if extra_cols else 'None'}\n"
-            f"   Missing columns from data: {missing_cols if missing_cols else 'None'}"
+            f"Extra columns in data not present in schema_sql: {extra_cols}. "
+            "These columns will be excluded from the output."
         )
 
-    # Drop extra columns if requested
-    if drop_extra_columns and extra_cols:
-        logger.info(f"   Dropping extra columns not in schema: {extra_cols}")
-        df = df.select(*[c for c in current_cols if c in target_cols])
-        current_cols = df.columns  # refresh after projection
+    # Name-based projection (safe): keeps only schema columns, in schema order
+    df = df.select(*target_cols)
 
-    if len(target_cols) == len(current_cols):
-        df = df.toDF(*target_cols)
-        logger.info(f"   Applied inline schema columns: {', '.join(target_cols)}")
-    else:
-        logger.warning(
-            "Schema column mismatch: "
-            f"{len(current_cols)} in data vs {len(target_cols)} in schema. Skipping rename."
-        )
+    logger.info(f"Applied name-based schema alignment with columns: {target_cols}")
+
     return df

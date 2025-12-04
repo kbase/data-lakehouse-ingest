@@ -159,7 +159,6 @@ def process_table(
         df=df,
         schema_sql=schema_sql,
         logger=logger,
-        drop_extra_columns=bool(table.get("drop_extra_columns", False)),  # defaults to False to avoid behavior change
     )
 
     # --- Write to Delta ---

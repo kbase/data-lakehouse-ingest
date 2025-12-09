@@ -22,6 +22,7 @@ from .orchestrator.table_batch_processor import process_tables
 from .orchestrator.error_utils import error_entry_for_exception
 
 from berdl_notebook_utils.setup_spark_session import get_spark_session
+from berdl_notebook_utils.clients import get_minio_client
 
 
 def ingest(
@@ -47,7 +48,10 @@ def ingest(
         dict[str, Any]: A structured ingestion report containing status, errors, and table-level metrics.
 
     Notes:
-        - SparkSession must be provided by the caller.
+        - SparkSession may be provided by the caller or auto-initialized.
+        - A valid MinIO client is REQUIRED for ingestion.
+          If `minio_client` is not provided, `get_minio_client()` is attempted.
+          If MinIO cannot be initialized, the pipeline fails immediately.
         - Supports multiple file formats (CSV, TSV, JSON, XML).
         - Each table in the configuration is processed independently.
     """
@@ -84,6 +88,40 @@ def ingest(
                 started_at=started_at,
                 exc=e,
             )
+        
+    # ----------------------------------------------------------------------
+    # MinIO Client Initialization
+    # ----------------------------------------------------------------------
+    if minio_client is None:
+        logger.info("No MinIO client provided — attempting auto-initialization via get_minio_client()")
+        try:
+            minio_client = get_minio_client()
+            logger.info("MinIO client successfully initialized via get_minio_client()")
+        except Exception as e:
+            error_msg = (
+                "MinIO client is required for ingestion but could not be initialized. "
+                "Call get_minio_client() and pass it explicitly into ingest(...)."
+            )
+            return log_error(
+                logger=logger,
+                error_msg=error_msg,
+                phase="minio_initialization",
+                started_at=started_at,
+                exc=e,
+            )
+
+    # Defensive check in case get_minio_client() returned None without raising
+    if minio_client is None:
+        error_msg = (
+            "MinIO client is required for ingestion but was not provided or initialized."
+        )
+        return log_error(
+            logger=logger,
+            error_msg=error_msg,
+            phase="minio_initialization",
+            started_at=started_at,
+            exc=None,
+        )
 
     # --- Config Loader ---
     try:

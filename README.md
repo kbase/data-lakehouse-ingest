@@ -11,7 +11,7 @@ It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies op
 This package uses [uv](https://docs.astral.sh/uv/) for Python environment and package management.
 See the [installation instructions](https://docs.astral.sh/uv/getting-started/installation/) to set up `uv` on your system.
 
-The package requires Python **3.12+**.
+The package requires Python **3.13+**.
 `uv` will download and manage Python automatically if your system Python is older.
 
 ---
@@ -40,23 +40,6 @@ source .venv/bin/activate
 The following example demonstrates a full ingestion workflow using Spark and MinIO.
 
 ```python
-from data_lakehouse_ingest.logger import setup_logger
-
-# Initialize Spark and MinIO -- works on Jupyter Hub
-spark = get_spark_session()
-minio_client = get_minio_client()
-
-# Set up structured logger
-pipeline_name = "pangenome"
-target_table = "genome"
-schema = "pangenome"
-
-logger = setup_logger(
-    pipeline_name=pipeline_name,
-    target_table=target_table,
-    schema=schema
-)
-
 # Option 1: Load config from MinIO
 cfg_path = "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/config-json/pangenome_ke_genome.json"
 
@@ -87,9 +70,6 @@ cfg_path = r'''
 # Run ingestion
 report = ingest(
     cfg_path,
-    spark=spark,
-    logger=logger,
-    minio_client=minio_client
 )
 
 print(report)
@@ -107,7 +87,24 @@ print(report)
 5. **Delta Write**: Writes curated data to the silver layer.
 6. **Logging**: All activities are logged with contextual metadata (pipeline, schema, table).
 
+---
 
+## Supported schema_sql Data Types
+
+The schema_sql field uses Spark SQL–compatible primitive data types for defining table schemas.
+Only the following data types are currently supported by the ingestion framework:
+```
+STRING
+INT
+INTEGER
+BIGINT
+LONG
+DOUBLE
+FLOAT
+BOOLEAN
+DATE
+TIMESTAMP
+```
 ---
 
 ## Jupyter Notebook integration

@@ -7,32 +7,50 @@ import logging
 from typing import Any
 from pyspark.sql import SparkSession
 from berdl_notebook_utils.spark.database import create_namespace_if_not_exists
+from data_lakehouse_ingest.logger import setup_logger
 
 
 def init_logger(logger: logging.Logger | None) -> logging.Logger:
     """
-    Initialize or return an existing logger for the ingestion framework.
+    Initialize or return a structured logger for the ingestion framework.
 
-    If an external logger is not provided, a default logger is configured
-    with INFO-level verbosity and a simple timestamped format.
+    If an external logger is provided, it is reused as-is. If no logger is
+    supplied, this function creates and returns a fully configured structured
+    logger using `setup_logger()`. The default structured logger emits JSON-
+    formatted log entries to both the console and a timestamped log file,
+    and automatically injects pipeline context (pipeline name, schema, table)
+    into each record.
 
     Args:
-        logger (logging.Logger | None): Optional external logger instance.
-            If None, a new logger is created and configured.
+        logger (logging.Logger | None):
+            Optional externally provided logger instance. If None, a new
+            structured pipeline logger is created using default values.
 
     Returns:
-        logging.Logger: The initialized or existing logger instance.
+        logging.Logger:
+            A structured logger instance configured with:
+            - JSON-formatted output
+            - Console and file handlers
+            - Pipeline context filters (pipeline, schema, table)
+            - Dynamic log level support
 
     Notes:
-        - The default logger uses a simple, human-readable format.
-        - All log messages will include timestamps and severity levels.
-        - The logger name is fixed to "data_lakehouse_ingest" for consistency.
+        - The default pipeline name is set to `"data_lakehouse_ingest"`.
+        - The default schema is set to `"default"`.
+        - The default log level is `"INFO"`, unless overridden by environment
+          variables inside `setup_logger()`.
+        - Repeated calls return the same underlying logger instance due to the
+          singleton behavior in `setup_logger()`.
     """
-    if logger is None:
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-        logger = logging.getLogger("data_lakehouse_ingest")
-        logger.info("No external logger provided; using internal basic logger.")
-    return logger
+    if logger is not None:
+        return logger
+
+    # Use structured logger
+    return setup_logger(
+        pipeline_name="data_lakehouse_ingest",
+        schema="default",
+        log_level="INFO",
+    )
 
 
 def init_run_context(

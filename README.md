@@ -2,7 +2,7 @@
 
 End-to-end ingestion framework for loading data into the BER Data Lakehouse using pyspark and minio.
 
-It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies schema-based casting and validation (via LinkML or SQL-style schema), and writes curated Delta tables to a Spark-based Lakehouse.
+It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies optional schema-based casting using SQL-style schema definitions, and writes curated Delta tables to a Spark-based Lakehouse.
 
 ---
 
@@ -11,7 +11,7 @@ It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies sc
 This package uses [uv](https://docs.astral.sh/uv/) for Python environment and package management.
 See the [installation instructions](https://docs.astral.sh/uv/getting-started/installation/) to set up `uv` on your system.
 
-The package requires Python **3.10+**.
+The package requires Python **3.13+**.
 `uv` will download and manage Python automatically if your system Python is older.
 
 ---
@@ -37,40 +37,20 @@ source .venv/bin/activate
 
 ## Usage
 
-The following example demonstrates a full ingestion workflow using Spark, MinIO, and LinkML schema integration.
+The following example demonstrates a full ingestion workflow using Spark and MinIO.
 
 ```python
-from data_lakehouse_ingest import data_lakehouse_ingest_config
-from data_lakehouse_ingest.logger import setup_logger
-from data_lakehouse_ingest.config_loader import ConfigLoader
-
-# Initialize Spark and MinIO -- works on Jupyter Hub
-spark = get_spark_session()
-minio_client = get_minio_client()
-
-# Set up structured logger
-pipeline_name = "pangenome"
-target_table = "genome"
-schema = "pangenome"
-
-logger = setup_logger(
-    pipeline_name=pipeline_name,
-    target_table=target_table,
-    schema=schema
-)
-
 # Option 1: Load config from MinIO
-cfg_path = "s3a://test-bucket/data-load/config-json/pangenome_ke_genome.json"
+cfg_path = "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/config-json/pangenome_ke_genome.json"
 
 # Option 2: Inline JSON config
 cfg_path = r'''
 {
-  "tenant": "pangenome_${dataset}",
-  "dataset": "pangenome_linkml",
+  "tenant": "kbase",
+  "dataset": "ke_pangenome",
   "paths": {
-    "data_plane": "s3a://test-bucket/",
-    "bronze_base": "s3a://test-bucket/pangenome_ke/bronze",
-    "silver_base": "s3a://test-bucket/pangenome_linkml/silver"
+    "data_plane": "s3a://cdm-lake/",
+    "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/bronze/",
   },
   "defaults": {
     "tsv": { "header": true, "delimiter": "\t", "inferSchema": false }
@@ -78,21 +58,18 @@ cfg_path = r'''
   "tables": [
     {
       "name": "genome",
-      "linkml_schema": "s3a://test-bucket/data-load/linkml-schema/genome_schema.yml",
-      "schema_sql": null,
+      "enabled": true,
+      "schema_sql": "genome_id STRING, gtdb_species_clade_id STRING, gtdb_taxonomy_id STRING, ncbi_biosample_id STRING, fna_file_path_nersc STRING, faa_file_path_nersc STRING",
       "partition_by": null,
-      "bronze_path": "s3a://test-bucket/pangenome_ke/bronze/table_genome_V1.1.tsv"
+      "bronze_path": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/bronze/tsv_files/table_genome_V1.1.tsv"
     }
   ]
 }
 '''
 
 # Run ingestion
-report = data_lakehouse_ingest_config(
+report = ingest(
     cfg_path,
-    spark=spark,
-    logger=logger,
-    minio_client=minio_client
 )
 
 print(report)
@@ -104,13 +81,30 @@ print(report)
 ## How it works
 
 1. **ConfigLoader** reads the JSON config (inline or from MinIO).
-2. **Schema Parsing**: Determines schema from LinkML or `schema_sql`.
+2. **Schema Parsing**: Determines schema from `schema_sql`.
 3. **Spark Ingestion**: Reads files from the bronze layer using `spark.read`.
 4. **Validation**: Applies schema casting and structural validation.
 5. **Delta Write**: Writes curated data to the silver layer.
 6. **Logging**: All activities are logged with contextual metadata (pipeline, schema, table).
 
+---
 
+## Supported schema_sql Data Types
+
+The schema_sql field uses Spark SQL–compatible primitive data types for defining table schemas.
+Only the following data types are currently supported by the ingestion framework:
+```
+STRING
+INT
+INTEGER
+BIGINT
+LONG
+DOUBLE
+FLOAT
+BOOLEAN
+DATE
+TIMESTAMP
+```
 ---
 
 ## Jupyter Notebook integration
@@ -134,7 +128,7 @@ If you are using Jupyter in the same container:
 Now you can use:
 
 ```python
-from data_lakehouse_ingest import data_lakehouse_ingest_config
+from data_lakehouse_ingest import ingest
 ```
 
 directly inside notebooks.

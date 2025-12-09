@@ -181,7 +181,7 @@ def process_table(
     quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
-    logger.info(f"Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
+    logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
     return {
         "name": name,

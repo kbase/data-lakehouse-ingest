@@ -57,7 +57,9 @@ def resolve_schema(
             schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.). 
             Only the schema-related fields are used in this function.
         logger (logging.Logger): Logger for reporting resolution decisions.
-        minio_client (Minio | None): Placeholder for future LinkML support.
+        minio_client (Minio | None): Placeholder for future MinIO-based schema retrieval. 
+            In the future, callers may want to supply MinIO paths to SQL DDL files, 
+            JSON Schemas, or other schema formats stored in MinIO.
 
     Returns:
         tuple[str | None, SchemaSource]:

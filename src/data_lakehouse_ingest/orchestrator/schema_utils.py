@@ -1,13 +1,30 @@
 """
-Schema management utilities for the Data Lakehouse Ingest framework.
-Handles schema resolution using inline SQL and column alignment for ingested DataFrames.
-Provides helpers to enforce consistent structure between raw data and curated Delta tables.
+Schema utilities for the Data Lakehouse Ingest framework.
+
+Provides helpers to resolve table schemas, parse SQL-style schema definitions,
+and align DataFrame columns using governed Spark DataTypes, including support
+for DECIMAL(p,s) and ARRAY<T> types.
 """
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col
+from pyspark.sql.functions import col, regexp_replace, from_json, split
+from pyspark.sql.types import (
+    StringType,
+    IntegerType,
+    LongType,
+    DoubleType,
+    FloatType,
+    BooleanType,
+    DateType,
+    TimestampType,
+    DecimalType,
+    DataType,
+    ArrayType,
+)
+
 import logging
 from enum import Enum
+import re
 
 class SchemaSource(Enum):
     """Enum describing the origin of a resolved schema."""
@@ -96,13 +113,25 @@ def apply_schema_columns(
          - Drops extra columns that appear in the input data but not in schema_sql.
       
       3. **Type enforcement (casting)**  
-         - Each column is cast to the data type declared in schema_sql
-           (e.g., INT, STRING, DOUBLE, BOOLEAN).
-         - Spark's cast semantics apply: malformed values result in runtime
-           errors unless callers wrap ingestion with additional validation.
-           For example, casting the string "1571.0" to INT will trigger an exception.
+         - Each column is cast to its declared Spark DataType.
+         - Supports full PySpark types:
+            STRING, INTEGER, BIGINT, DOUBLE, FLOAT, BOOLEAN,
+            DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>
+         - For ARRAY<T> types, the function uses:
+                from_json(col(col_name), ArrayType(innerType))
+            to convert JSON-encoded arrays to Spark arrays.
       
-      4. **Ordered projection**  
+      4. **Array Conversion**
+         - For ARRAY<T> columns, the function converts *JSON-encoded string*
+           values into proper Spark arrays using:
+               from_json(col(col_name), ArrayType(innerType))
+         - Supports nested array element types (e.g., ARRAY<ARRAY<INT>>)
+           as produced by `parse_schema_sql()`.
+         - Note: The function expects the input column for ARRAY<T> to contain
+           JSON strings. Non-JSON formats (e.g., PostgreSQL-style "{1,2}") are
+           not automatically converted.
+
+      5. **Ordered projection**  
          - The output DataFrame contains only the schema_sql columns,
            in the exact order they were declared.
 
@@ -172,121 +201,166 @@ def apply_schema_columns(
         )
 
     # Enforce ordering + type casting
-    projected_cols = [
-        col(col_name).cast(col_type).alias(col_name)
-        for col_name, col_type in schema_defs
-    ]
+    projected_cols = []
+
+    for col_name, col_type in schema_defs:
+        if isinstance(col_type, ArrayType):
+            # Correct way to turn JSON string -> Spark ARRAY
+            projected_cols.append(
+                from_json(col(col_name), col_type).alias(col_name)
+            )
+        else:
+            # Normal scalar cast
+            projected_cols.append(
+                col(col_name).cast(col_type).alias(col_name)
+            )
+
 
     # Name-based projection (safe): keeps only schema columns, in schema order
     df = df.select(*projected_cols)
+
 
     logger.info(f"Applied name-based schema alignment with columns: {target_cols}")
 
     return df
 
 
-def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str, str]]:
+def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str, DataType]]:
     """
     Parse a SQL-style schema definition into a structured list of
-    (column_name, data_type) tuples.
+    (column_name, DataType) tuples.
 
     The function expects `schema_sql` to contain one or more column
     specifications separated by commas. Each specification must follow the form:
 
         <column_name> <data_type>
 
-    For example:
-
+    Example:
         "id INT, name STRING, score DOUBLE"
 
     is parsed into:
 
-        [("id", "INT"), ("name", "STRING"), ("score", "DOUBLE")]
+        [("id", IntegerType()), ("name", StringType()), ("score", DoubleType())]
+
+    Supported data types:
+        • Primitive Spark types:
+              STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT,
+              BOOLEAN, DATE, TIMESTAMP
+        • DECIMAL(p,s) with validated precision/scale
+        • ARRAY<T> with recursive parsing, including nested arrays
+              ARRAY<STRING>
+              ARRAY<DOUBLE>
+              ARRAY<ARRAY<INT>>
 
     Parsing behavior:
-        • Whitespace around commas and column tokens is ignored.
+        • Leading/trailing whitespace around tokens is ignored.
         • Data types are normalized to uppercase.
-        • A column definition must contain at least two tokens:
-              <name> <type>
-          Additional tokens (e.g., comments) are not allowed.
-        • If any definition is malformed, a ValueError is raised with a
+        • A definition must contain at least two tokens: <name> <type>.
+        • Additional trailing tokens are not allowed (fail-fast behavior).
+        • Invalid or unsupported data types raise ValueError with a
           descriptive error message.
-
-    This parser is intentionally minimal and is not a full SQL parser; it
-    supports only the simple "<name> <type>" syntax required by the ingestion
-    framework.
 
     Args:
         schema_sql (str):
             A comma-separated SQL-style schema definition.
 
     Returns:
-        list[tuple[str, str]]:
-            A list of (column_name, data_type) tuples in the order they appear
-            in the input string.
+        list[tuple[str, DataType]]:
+            A list of (column_name, SparkDataType) tuples in the order they
+            appear in the schema_sql string.
 
     Raises:
         ValueError:
-            If any column definition is missing a name or a data type, or if the
-            definition cannot be tokenized properly.
+            • If any column definition is malformed.
+            • If a data type is unsupported.
+            • If DECIMAL(p,s) or ARRAY<T> syntax is invalid.
 
     Examples:
         >>> parse_schema_sql("id INT, name STRING")
-        [('id', 'INT'), ('name', 'STRING')]
+        [('id', IntegerType()), ('name', StringType())]
 
-        >>> parse_schema_sql("value DOUBLE")
-        [('value', 'DOUBLE')]
+        >>> parse_schema_sql("values ARRAY<DOUBLE>")
+        [('values', ArrayType(DoubleType()))]
 
-        >>> parse_schema_sql("invalid_def")
-        ValueError: Invalid column definition in schema_sql: 'invalid_def'
+        >>> parse_schema_sql("amount DECIMAL(10,2)")
+        [('amount', DecimalType(10, 2))]
+
+        >>> parse_schema_sql("invalid")
+        ValueError: Invalid column definition in schema_sql: 'invalid'
     """
-   # Basic set of supported primitive types; extend as needed.
-    SUPPORTED_TYPES = {
-        "STRING",
-        "INT",
-        "INTEGER",
-        "BIGINT",
-        "LONG",
-        "DOUBLE",
-        "FLOAT",
-        "BOOLEAN",
-        "DATE",
-        "TIMESTAMP",
-    }
+    def _to_pyspark_type(dt_raw: str) -> DataType:
+        dt = dt_raw.upper()
 
-    def _is_supported_type(dt: str) -> bool:
-        # Allow DECIMAL(p,s) as a special case
+        # DECIMAL(p,s) special-case
         if dt.startswith("DECIMAL(") and dt.endswith(")"):
-            return True
-        return dt in SUPPORTED_TYPES
+            inner = dt[len("DECIMAL("):-1]
+            try:
+                precision_str, scale_str = inner.split(",")
+                precision = int(precision_str.strip())
+                scale = int(scale_str.strip())
+            except Exception as exc:
+                logger.error(f"Invalid DECIMAL definition '{dt_raw}': {exc}")
+                raise ValueError(f"Invalid DECIMAL definition '{dt_raw}'") from exc
+            return DecimalType(precision=precision, scale=scale)
+
+        # ----------------------------
+        # ARRAY<TYPE>
+        # ----------------------------
+        array_match = re.match(r"^ARRAY<(.+)>$", dt)
+        if array_match:
+            inner_type_raw = array_match.group(1).strip()
+            inner_type = _to_pyspark_type(inner_type_raw)  # recursive
+            return ArrayType(inner_type)
+
+        # ----------------------------
+        # Primitive Types
+        # ----------------------------
+        mapping: dict[str, DataType] = {
+            "STRING": StringType(),
+            "INT": IntegerType(),
+            "INTEGER": IntegerType(),
+            "BIGINT": LongType(),
+            "LONG": LongType(),
+            "DOUBLE": DoubleType(),
+            "FLOAT": FloatType(),
+            "BOOLEAN": BooleanType(),
+            "DATE": DateType(),
+            "TIMESTAMP": TimestampType(),
+        }
+
+
+        if dt not in mapping:
+            logger.error(
+                f"Unsupported data type '{dt_raw}' in schema_sql "
+                "(expected one of STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, "
+                "DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>)."
+            )
+            raise ValueError(f"Unsupported data type '{dt_raw}' in schema_sql.")
+
+        return mapping[dt]
 
     logger.info(f"Parsing SQL schema definition: {schema_sql}")
 
-    columns: list[tuple[str, str]] = []
+    columns: list[tuple[str, DataType]] = []
     for raw_def in schema_sql.split(","):
         col_def = raw_def.strip()
-        logger.debug(f"Processing schema column definition: '{col_def}'")
+        if not col_def:
+            # Empty segment (e.g., trailing comma) → fail fast
+            logger.error(f"Empty column definition in schema_sql: '{schema_sql}'")
+            raise ValueError(f"Empty column definition in schema_sql: '{schema_sql}'")
 
+        logger.debug(f"Processing schema column definition: '{col_def}'")
         parts = col_def.split()
+
         if len(parts) < 2:
             logger.error(f"Invalid column definition in schema_sql: '{col_def}'")
             raise ValueError(f"Invalid column definition in schema_sql: '{col_def}'")
 
         col_name, col_type_raw = parts[0], parts[1]
-        col_type = col_type_raw.upper()
+        dtype = _to_pyspark_type(col_type_raw)
 
-        if not _is_supported_type(col_type):
-            logger.error(
-                f"Unsupported data type '{col_type_raw}' for column '{col_name}' "
-                f"in schema_sql: '{col_def}'"
-            )
-            raise ValueError(
-                f"Unsupported data type '{col_type_raw}' for column '{col_name}' "
-                f"in schema_sql."
-            )
-
-        columns.append((col_name, col_type))
-        logger.debug(f"Parsed column: name='{col_name}', type='{col_type}'")
+        columns.append((col_name, dtype))
+        logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")
     return columns

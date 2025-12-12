@@ -177,7 +177,7 @@ def apply_schema_columns(
     # No schema provided → return as-is
     if not schema_sql:
         logger.info("No schema_sql provided; skipping schema alignment.")
-        return df
+        return df, {"dropped_columns": []}
 
     # Parse SQL schema into structured representation
     schema_defs = parse_schema_sql(schema_sql, logger)
@@ -222,7 +222,7 @@ def apply_schema_columns(
 
     logger.info(f"Applied name-based schema alignment with columns: {target_cols}")
 
-    return df
+    return df, {"dropped_columns": extra_cols}
 
 
 def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str, DataType]]:

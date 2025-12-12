@@ -16,3 +16,8 @@ sys.modules.setdefault(
 mock_setup_spark = MagicMock()
 mock_setup_spark.get_spark_session = MagicMock(side_effect=ImportError("berdl_notebook_utils not installed"))
 sys.modules.setdefault("berdl_notebook_utils.setup_spark_session", mock_setup_spark)
+
+# mock for get_minio_client
+mock_clients = MagicMock()
+mock_clients.get_minio_client = MagicMock(return_value=MagicMock())
+sys.modules.setdefault("berdl_notebook_utils.clients", mock_clients)

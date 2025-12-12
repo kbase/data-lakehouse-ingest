@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, StringType, DoubleType
 from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns, parse_schema_sql
+from pyspark.sql.types import IntegerType, StringType, DoubleType, ArrayType
+
 
 # ----------------------------------------------------------------------
 # resolve_schema tests
@@ -58,11 +60,14 @@ def test_parse_schema_sql_parses_correctly():
     schema_sql = "id INT, name STRING, score DOUBLE"
     parsed = parse_schema_sql(schema_sql, mock_logger)
 
-    assert parsed == [
-        ("id", "INT"),
-        ("name", "STRING"),
-        ("score", "DOUBLE"),
-    ]
+    assert parsed[0][0] == "id"
+    assert isinstance(parsed[0][1], IntegerType)
+
+    assert parsed[1][0] == "name"
+    assert isinstance(parsed[1][1], StringType)
+
+    assert parsed[2][0] == "score"
+    assert isinstance(parsed[2][1], DoubleType)
 
 
 def test_parse_schema_sql_raises_on_invalid_column_def():
@@ -127,3 +132,23 @@ def test_apply_schema_columns_drops_extra_columns():
 
     assert df2.columns == ["id", "name"]
     assert "extra" not in df2.columns
+
+
+def test_parse_schema_sql_array_string():
+    logger = MagicMock()
+    result = parse_schema_sql("tags ARRAY<STRING>", logger)
+    assert isinstance(result[0][1], ArrayType)
+    assert isinstance(result[0][1].elementType, StringType)
+
+
+def test_parse_schema_sql_array_int():
+    logger = MagicMock()
+    result = parse_schema_sql("values ARRAY<INT>", logger)
+    assert isinstance(result[0][1].elementType, IntegerType)
+
+
+def test_parse_schema_sql_nested_array():
+    logger = MagicMock()
+    result = parse_schema_sql("matrix ARRAY<ARRAY<DOUBLE>>", logger)
+    assert isinstance(result[0][1], ArrayType)
+    assert isinstance(result[0][1].elementType, ArrayType)

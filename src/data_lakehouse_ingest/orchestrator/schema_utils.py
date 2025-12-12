@@ -354,9 +354,15 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         logger.debug(f"Processing schema column definition: '{col_def}'")
         parts = col_def.split()
 
-        if len(parts) < 2:
-            logger.error(f"Invalid column definition in schema_sql: '{col_def}'")
-            raise ValueError(f"Invalid column definition in schema_sql: '{col_def}'")
+        if len(parts) != 2:
+            logger.error(
+                f"Invalid column definition in schema_sql: '{col_def}'. "
+                "Expected exactly two tokens: <name> <type>."
+            )
+            raise ValueError(
+                f"Invalid column definition in schema_sql: '{col_def}'. "
+                "Expected format: '<column_name> <data_type>'."
+            )
 
         col_name, col_type_raw = parts[0], parts[1]
         dtype = _to_pyspark_type(col_type_raw)

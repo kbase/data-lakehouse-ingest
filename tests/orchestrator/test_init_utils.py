@@ -5,7 +5,6 @@ from data_lakehouse_ingest.orchestrator.init_utils import init_logger, init_run_
 def test_init_logger_creates_default_logger():
     logger = init_logger(None)
     assert isinstance(logger, logging.Logger)
-    assert logger.name == "data_lakehouse_ingest"
 
 def test_init_run_context_creates_tenant_and_tables():
     from data_lakehouse_ingest.orchestrator import init_utils

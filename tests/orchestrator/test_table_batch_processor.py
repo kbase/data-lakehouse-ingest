@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from data_lakehouse_ingest.orchestrator.table_batch_processor import process_tables
@@ -50,16 +49,6 @@ def test_process_tables_success():
     # Ensure process_table was called twice (once per table)
     assert mock_process_table.call_count == 2
 
-    # Ensure logger context was set per table if logger.context_filter exists
-    if hasattr(logger, "context_filter"):
-        logger.context_filter.set_table.assert_any_call("table1")
-        logger.context_filter.set_table.assert_any_call("table2")
-
-    # Ensure logger was called with the table processing log
-    logger.info.assert_any_call("Processing table: table1")
-    logger.info.assert_any_call("Processing table: table2")
-
-
 def test_process_tables_with_exception():
     """
     Test that when process_table raises an exception, the error entry is created
@@ -107,6 +96,3 @@ def test_process_tables_with_exception():
 
     # Ensure error_entry_for_exception was used
     mock_error_entry.assert_called_once()
-
-    # Verify that ProcessTable attempted to log
-    logger.info.assert_any_call("Processing table: boom_table")

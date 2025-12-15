@@ -38,7 +38,8 @@ def table_config():
 @patch("data_lakehouse_ingest.orchestrator.table_processor.resolve_schema", return_value=("CREATE TABLE ...", "linkml"))
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch("data_lakehouse_ingest.orchestrator.table_processor.load_table_data", return_value=(MagicMock(), 100))
-@patch("data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns", side_effect=lambda df, **_: df)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
+        side_effect=lambda df, **_: (df, {"dropped_columns": []}))
 @patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
 def test_process_table_success(
     mock_write_to_delta,

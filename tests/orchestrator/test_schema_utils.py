@@ -98,7 +98,7 @@ def test_apply_schema_columns_casts_and_orders_columns():
     schema_sql = "id INT, name STRING, value DOUBLE"
     mock_logger = MagicMock()
 
-    df2 = apply_schema_columns(df, schema_sql, mock_logger)
+    df2, meta = apply_schema_columns(df, schema_sql, mock_logger)
 
     assert df2.columns == ["id", "name", "value"]
 
@@ -106,6 +106,7 @@ def test_apply_schema_columns_casts_and_orders_columns():
     assert isinstance(df2.schema["id"].dataType, IntegerType)
     assert isinstance(df2.schema["name"].dataType, StringType)
     assert isinstance(df2.schema["value"].dataType, DoubleType)
+    assert meta["dropped_columns"] == []
 
 
 def test_apply_schema_columns_raises_on_missing_columns():
@@ -128,10 +129,11 @@ def test_apply_schema_columns_drops_extra_columns():
     schema_sql = "id INT, name STRING"
     mock_logger = MagicMock()
 
-    df2 = apply_schema_columns(df, schema_sql, mock_logger)
+    df2, meta = apply_schema_columns(df, schema_sql, mock_logger)
 
     assert df2.columns == ["id", "name"]
     assert "extra" not in df2.columns
+    assert meta["dropped_columns"] == ["extra"]
 
 
 def test_parse_schema_sql_array_string():

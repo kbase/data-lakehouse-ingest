@@ -46,6 +46,7 @@ def test_ingest_config_missing_spark(mock_logger):
     assert "spark_initialization" in json.dumps(result)
 
 
+@patch("data_lakehouse_ingest.core.get_minio_client")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
 def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger):
     mock_loader.side_effect = Exception("invalid config")
@@ -53,6 +54,7 @@ def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger
     assert result["success"] is False
     assert "config_validation" in json.dumps(result)
 
+@patch("data_lakehouse_ingest.orchestrator.init_utils.create_namespace_if_not_exists")
 @patch("data_lakehouse_ingest.core.get_minio_client")
 @patch("data_lakehouse_ingest.core.process_tables")
 @patch("data_lakehouse_ingest.core.ConfigLoader")

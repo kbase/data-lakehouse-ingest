@@ -1,10 +1,9 @@
 import pytest
-import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, StringType, DoubleType
 from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns, parse_schema_sql
-from pyspark.sql.types import IntegerType, StringType, DoubleType, ArrayType
+from pyspark.sql.types import ArrayType
 
 
 # ----------------------------------------------------------------------

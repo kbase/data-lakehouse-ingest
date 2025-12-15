@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
 from data_lakehouse_ingest.orchestrator.table_batch_processor import process_tables

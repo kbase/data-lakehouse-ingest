@@ -30,7 +30,7 @@ def reset_logger_singleton():
     # Reset our singleton
     logger_module._logger_instance = None
 
-    # ALSO reset the underlying logging.Logger state
+    # Also reset the underlying logging.Logger state
     logger = logging.getLogger("pipeline_logger")
 
     # Remove handlers
@@ -38,7 +38,7 @@ def reset_logger_singleton():
         h.close()
         logger.removeHandler(h)
 
-    # Remove filters (THIS is the missing piece)
+    # Remove filters
     logger.filters.clear()
 
     # Remove custom attributes if present

@@ -2,7 +2,15 @@ import json
 import logging
 import os
 import pytest
+import importlib
 from data_lakehouse_ingest.logger import setup_logger, PipelineContextFilter
+import data_lakehouse_ingest.logger as logger_module
+
+
+@pytest.fixture(autouse=True)
+def reload_logger_module():
+    importlib.reload(logger_module)
+    yield
 
 def test_setup_logger_creates_file_and_logs_context(tmp_path):
     logger = setup_logger(

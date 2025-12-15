@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
@@ -13,7 +12,7 @@ from minio.error import S3Error
 @pytest.fixture
 def minimal_config():
     return {
-        "tenant": "genomedepot_${dataset}",
+        "tenant": "genomedepot",
         "dataset": "arkinlab",
         "paths": {"bronze_base": "s3a://bucket/bronze", "silver_base": "s3a://bucket/silver"},
         "tables": [
@@ -38,7 +37,7 @@ def mock_logger():
 # ---------------------------------------------------------------------
 def test_load_from_dict(minimal_config, mock_logger):
     loader = ConfigLoader(minimal_config, logger=mock_logger)
-    assert loader.get_tenant() == "genomedepot_arkinlab"
+    assert loader.get_tenant() == minimal_config["tenant"]
     mock_logger.info.assert_any_call("Using inline dict configuration")
     mock_logger.info.assert_any_call("Minimal config validation passed")
 

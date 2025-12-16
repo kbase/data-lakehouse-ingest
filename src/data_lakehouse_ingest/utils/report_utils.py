@@ -9,7 +9,7 @@ consistent JSON-serializable report output.
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 
 class TableReport(BaseModel):
@@ -52,9 +52,9 @@ class ErrorReport(BaseModel):
 def _normalize_to_utc(ts: str | None) -> datetime:
     """
     Normalize a timestamp to a timezone-aware UTC datetime object.
-    
-    This helper accepts an ISO 8601 timestamp string or None.  
-    - If `ts` is None, the current UTC time is returned.  
+
+    This helper accepts an ISO 8601 timestamp string or None.
+    - If `ts` is None, the current UTC time is returned.
     - If `ts` is a naive datetime string (no timezone), it is assumed to already
       represent UTC and is converted to a UTC-aware datetime.
     - If `ts` includes a timezone offset, it is converted to UTC.

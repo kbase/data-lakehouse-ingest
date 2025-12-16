@@ -7,7 +7,7 @@ for DECIMAL(p,s) and ARRAY<T> types.
 """
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, regexp_replace, from_json, split
+from pyspark.sql.functions import col, from_json
 from pyspark.sql.types import (
     StringType,
     IntegerType,
@@ -52,13 +52,13 @@ def resolve_schema(
 
     Args:
         spark (SparkSession): Active Spark session (unused until LinkML is implemented).
-        table (dict): Full table definition from the ingestion config. 
-            This dict may include many fields (e.g., name, bronze_path, enabled, 
-            schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.). 
+        table (dict): Full table definition from the ingestion config.
+            This dict may include many fields (e.g., name, bronze_path, enabled,
+            schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.).
             Only the schema-related fields are used in this function.
         logger (logging.Logger): Logger for reporting resolution decisions.
-        minio_client (Minio | None): Placeholder for future MinIO-based schema retrieval. 
-            In the future, callers may want to supply MinIO paths to SQL DDL files, 
+        minio_client (Minio | None): Placeholder for future MinIO-based schema retrieval.
+            In the future, callers may want to supply MinIO paths to SQL DDL files,
             JSON Schemas, or other schema formats stored in MinIO.
 
     Returns:
@@ -107,14 +107,14 @@ def apply_schema_columns(
     *data types*, ensuring that curated Delta tables follow a consistent,
     governed schema. The function performs four key operations:
 
-      1. **Validation**  
+      1. **Validation**
          - Ensures every column declared in schema_sql exists in the input DataFrame.
          - Raises ValueError on any missing required column (fail-fast behavior).
-      
-      2. **Column pruning**  
+
+      2. **Column pruning**
          - Drops extra columns that appear in the input data but not in schema_sql.
-      
-      3. **Type enforcement (casting)**  
+
+      3. **Type enforcement (casting)**
          - Each column is cast to its declared Spark DataType.
          - Supports full PySpark types:
             STRING, INTEGER, BIGINT, DOUBLE, FLOAT, BOOLEAN,
@@ -122,7 +122,7 @@ def apply_schema_columns(
          - For ARRAY<T> types, the function uses:
                 from_json(col(col_name), ArrayType(innerType))
             to convert JSON-encoded arrays to Spark arrays.
-      
+
       4. **Array Conversion**
          - For ARRAY<T> columns, the function converts *JSON-encoded string*
            values into proper Spark arrays using:
@@ -133,7 +133,7 @@ def apply_schema_columns(
            JSON strings. Non-JSON formats (e.g., PostgreSQL-style "{1,2}") are
            not automatically converted.
 
-      5. **Ordered projection**  
+      5. **Ordered projection**
          - The output DataFrame contains only the schema_sql columns,
            in the exact order they were declared.
 

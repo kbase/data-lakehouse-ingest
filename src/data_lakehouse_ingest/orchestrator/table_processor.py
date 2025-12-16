@@ -109,7 +109,7 @@ def process_table(
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
     namespace_base_path = ctx["namespace_base_path"]
-    
+
     name = table["name"]
     bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path
@@ -155,12 +155,13 @@ def process_table(
         }
 
     # --- Apply schema (rename; optionally drop extras if requested) ---
-    df = apply_schema_columns(
+    df, schema_meta = apply_schema_columns(
         df=df,
         schema_sql=schema_sql,
         logger=logger,
-        drop_extra_columns=bool(table.get("drop_extra_columns", False)),  # defaults to False to avoid behavior change
     )
+
+    dropped_cols = schema_meta.get("dropped_columns", [])
 
     # --- Write to Delta ---
     partition_by = table.get("partition_by")
@@ -182,7 +183,7 @@ def process_table(
     quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
-    logger.info(f"Table {tenant}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
+    logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
     return {
         "name": name,
@@ -196,6 +197,7 @@ def process_table(
         "rows_in": rows_in,
         "rows_written": rows_written,
         "rows_rejected": rows_rejected,
+        "extra_columns_dropped": dropped_cols,
         "partitions_written": partitions_written,
         "quarantine_path": quarantine_path,
         "elapsed_sec": elapsed_sec,

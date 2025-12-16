@@ -124,6 +124,6 @@ def init_run_context(
         "tenant": tenant,
         "dataset": dataset,
         "namespace": namespace,
-        "namespace_base_path": base_path, 
+        "namespace_base_path": base_path,
         "tables": tables,
     }

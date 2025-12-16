@@ -12,6 +12,8 @@ from pyspark.sql import SparkSession, DataFrame
 from data_lakehouse_ingest.loaders.json_loader import load_json_data
 from data_lakehouse_ingest.loaders.xml_loader import load_xml_data
 from data_lakehouse_ingest.loaders.dsv_loader import load_csv_data, load_tsv_data
+from data_lakehouse_ingest.loaders.parquet_loader import load_parquet_data
+
 
 def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     """
@@ -44,7 +46,7 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     # Future improvement:
     #   - Use `python-magic` or similar libraries to inspect file headers
     #     instead of relying only on extensions.
-    
+
     if explicit_fmt:
         return explicit_fmt.lower()
 
@@ -54,6 +56,7 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
         "tsv": "tsv",
         "json": "json",
         "xml": "xml",
+        "parquet": "parquet",
     }
 
     ext = bronze_path.split(".")[-1].lower()
@@ -75,6 +78,7 @@ def load_table_data(
         "xml": load_xml_data,
         "csv": load_csv_data,
         "tsv": load_tsv_data,
+        "parquet": load_parquet_data,
     }
 
     if fmt not in fmt_to_loader:
@@ -102,7 +106,7 @@ def write_to_delta(
     # Goal:
     #   Eliminate the need to manually construct and manage table paths (namespace_base_path/name)
     #   by allowing Spark to handle initial table creation and location assignment.
-    
+
     # Construct deterministic table path inside namespace storage location
     table_path = f"{namespace_base_path}/{name}"
 

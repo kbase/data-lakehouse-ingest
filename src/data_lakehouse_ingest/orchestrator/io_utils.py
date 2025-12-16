@@ -46,7 +46,7 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     # Future improvement:
     #   - Use `python-magic` or similar libraries to inspect file headers
     #     instead of relying only on extensions.
-    
+
     if explicit_fmt:
         return explicit_fmt.lower()
 
@@ -106,7 +106,7 @@ def write_to_delta(
     # Goal:
     #   Eliminate the need to manually construct and manage table paths (namespace_base_path/name)
     #   by allowing Spark to handle initial table creation and location assignment.
-    
+
     # Construct deterministic table path inside namespace storage location
     table_path = f"{namespace_base_path}/{name}"
 

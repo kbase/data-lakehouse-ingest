@@ -109,7 +109,7 @@ def process_table(
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
     namespace_base_path = ctx["namespace_base_path"]
-    
+
     name = table["name"]
     bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path

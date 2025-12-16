@@ -4,13 +4,11 @@ Executes config-driven ingestion from Bronze (raw) to Silver (curated) Delta tab
 Handles schema enforcement (SQL/LinkML), multi-format loading, and report generation.
 """
 
-import json
 import logging
 from typing import Any
 from datetime import datetime, timezone
 from minio import Minio
 from pyspark.sql import SparkSession
-from pyspark.sql.utils import AnalysisException
 
 from .utils.report_utils import generate_report
 from .logger import safe_log_json
@@ -19,7 +17,6 @@ from .config_loader import ConfigLoader
 # New modular helpers
 from .orchestrator.init_utils import init_logger, init_run_context
 from .orchestrator.table_batch_processor import process_tables
-from .orchestrator.error_utils import error_entry_for_exception
 
 from berdl_notebook_utils.setup_spark_session import get_spark_session
 from berdl_notebook_utils.clients import get_minio_client
@@ -88,7 +85,7 @@ def ingest(
                 started_at=started_at,
                 exc=e,
             )
-        
+
     # ----------------------------------------------------------------------
     # MinIO Client Initialization
     # ----------------------------------------------------------------------
@@ -139,7 +136,7 @@ def ingest(
 
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
-    
+
     # --- Table-level processing ---
     table_reports, error_list = process_tables(
         spark=spark,

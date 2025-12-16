@@ -14,7 +14,6 @@ Features:
 """
 
 import logging
-from typing import Dict, Any
 from pyspark.sql import SparkSession
 
 

@@ -2,7 +2,11 @@ import pytest
 from unittest.mock import MagicMock
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, StringType, DoubleType
-from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns, parse_schema_sql
+from data_lakehouse_ingest.orchestrator.schema_utils import (
+    resolve_schema,
+    apply_schema_columns,
+    parse_schema_sql,
+)
 from pyspark.sql.types import ArrayType
 
 
@@ -24,10 +28,7 @@ def test_resolve_schema_raises_when_linkml_present():
 
 
 def test_resolve_schema_returns_schema_sql():
-    table = {
-        "name": "t1",
-        "schema_sql": "id INT, name STRING"
-    }
+    table = {"name": "t1", "schema_sql": "id INT, name STRING"}
 
     mock_spark = MagicMock()
     mock_logger = MagicMock()
@@ -89,10 +90,7 @@ def test_parse_schema_sql_raises_on_unsupported_type():
 def test_apply_schema_columns_casts_and_orders_columns():
     spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
 
-    df = spark.createDataFrame(
-        [(1, "A", 3.14)],
-        ["id", "name", "value"]
-    )
+    df = spark.createDataFrame([(1, "A", 3.14)], ["id", "name", "value"])
 
     schema_sql = "id INT, name STRING, value DOUBLE"
     mock_logger = MagicMock()

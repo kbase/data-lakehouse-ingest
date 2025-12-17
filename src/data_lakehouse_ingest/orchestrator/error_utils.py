@@ -8,6 +8,7 @@ table-level processing, ensuring consistent error reporting across
 all stages of the ingestion pipeline.
 """
 
+
 def error_entry_for_exception(table: dict, exc: Exception) -> dict[str, str]:
     """
     Create a standardized error entry dictionary for a failed table operation.

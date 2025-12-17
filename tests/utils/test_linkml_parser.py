@@ -12,12 +12,7 @@ from data_lakehouse_ingest.utils.linkml_parser import load_linkml_schema
 @pytest.fixture(scope="module")
 def spark():
     """Create a simple Spark session for testing."""
-    return (
-        SparkSession.builder
-        .master("local[1]")
-        .appName("linkml-test")
-        .getOrCreate()
-    )
+    return SparkSession.builder.master("local[1]").appName("linkml-test").getOrCreate()
 
 
 @pytest.fixture
@@ -119,10 +114,7 @@ slots:
     assert schema == {"value": "BOOLEAN"}
 
     # Ensure MinIO client was used
-    minio_client.get_object.assert_called_once_with(
-        "mybucket",
-        "path/schema.yaml"
-    )
+    minio_client.get_object.assert_called_once_with("mybucket", "path/schema.yaml")
 
     # Ensure fake object was closed
     fake_obj.close.assert_called_once()

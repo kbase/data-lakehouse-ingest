@@ -24,6 +24,7 @@ from minio import Minio
 SAFE_CONFIG_DIR = Path.home().joinpath(".data_lakehouse", "configs").resolve()
 SAFE_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
+
 class ConfigLoader:
     """
     ConfigLoader is responsible for safely loading and validating ingestion
@@ -62,7 +63,9 @@ class ConfigLoader:
 
         if isinstance(cfg, str) and cfg.startswith("s3a://") and self.minio_client is None:
             self.logger.error("MinIO client must be provided for s3a:// paths.")
-            raise ValueError("MinIO client must be provided when loading configuration from an s3a:// path.")
+            raise ValueError(
+                "MinIO client must be provided when loading configuration from an s3a:// path."
+            )
 
         try:
             self.config: dict[str, Any] = self._load_config(cfg)
@@ -110,7 +113,9 @@ class ConfigLoader:
                 self.logger.error(f"Failed to read {cfg} from MinIO: {e}", exc_info=True)
                 raise RuntimeError(f"Failed to read {cfg} from MinIO: {e}")
             except Exception as e:
-                self.logger.error(f"Unexpected error while reading {cfg} from MinIO: {e}", exc_info=True)
+                self.logger.error(
+                    f"Unexpected error while reading {cfg} from MinIO: {e}", exc_info=True
+                )
                 raise
 
         # --- Inline JSON string ---

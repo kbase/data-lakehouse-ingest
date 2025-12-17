@@ -23,6 +23,7 @@ class TableReport(BaseModel):
         duration_sec (float | None): Time taken for table processing in seconds.
         message (str | None): Additional context or status message.
     """
+
     name: str = Field(..., description="Name of the table")
     rows: int | None = Field(None, description="Row count for the table")
     status: str = Field(..., description="Status of ingestion (success/failed)")
@@ -40,10 +41,12 @@ class ErrorReport(BaseModel):
         table (str | None): Name of the table associated with the error, if applicable.
         stacktrace (str | None): Optional detailed stack trace.
     """
+
     phase: str = Field(..., description="Pipeline phase where error occurred")
     error: str = Field(..., description="Error message")
     table: str | None = Field(None, description="Table name related to the error")
     stacktrace: str | None = Field(None, description="Stack trace for debugging")
+
 
 # TODO: Extend this helper to also accept native datetime objects in addition
 # to ISO 8601 strings. This will allow core ingestion modules to keep timestamps

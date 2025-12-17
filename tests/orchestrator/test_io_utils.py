@@ -1,6 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_table_data, write_to_delta
+from data_lakehouse_ingest.orchestrator.io_utils import (
+    detect_format,
+    load_table_data,
+    write_to_delta,
+)
+
 
 @pytest.mark.parametrize(
     "filename,format_hint,expected",
@@ -10,11 +15,12 @@ from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_tabl
         ("file.csv", None, "csv"),
         ("file.xml", None, "xml"),
         ("file.unknown", None, "csv"),  # default fallback from detect_format()
-        ("file", None, "csv"), # no extension → fallback to csv
+        ("file", None, "csv"),  # no extension → fallback to csv
     ],
 )
 def test_detect_format_by_extension(filename, format_hint, expected):
     assert detect_format(filename, format_hint) == expected
+
 
 @patch("data_lakehouse_ingest.orchestrator.io_utils.load_json_data")
 def test_load_table_data_uses_correct_loader(mock_loader):
@@ -23,6 +29,7 @@ def test_load_table_data_uses_correct_loader(mock_loader):
     mock_spark = MagicMock()
     df, rows = load_table_data(mock_spark, "s3://bucket/data.json", "json", {}, mock_logger)
     mock_loader.assert_called_once()
+
 
 @patch("data_lakehouse_ingest.orchestrator.io_utils.SparkSession")
 def test_write_to_delta_creates_table(mock_spark):
@@ -40,7 +47,6 @@ def test_write_to_delta_creates_table(mock_spark):
         "overwrite",
         mock_logger,
     )
-
 
     # Verify info was logged with the expected keyword
     info_calls = [str(call) for call in mock_logger.info.call_args_list]

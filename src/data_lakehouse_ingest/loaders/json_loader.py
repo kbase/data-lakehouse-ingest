@@ -10,6 +10,7 @@ Purpose:
 import logging
 from pyspark.sql import SparkSession, DataFrame
 
+
 def load_json_data(spark: SparkSession, path: str, opts: dict, logger: logging.Logger) -> DataFrame:
     """
     Load newline-delimited JSON files into a Spark DataFrame.

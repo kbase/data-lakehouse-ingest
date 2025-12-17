@@ -61,14 +61,10 @@ jobs:
         shell: bash -l {0}
         continue-on-error: false
         run: |
-          echo "Running tests inside container..."
-          # allow container to write coverage.xml etc.
-          chmod 777 .
-          docker run --rm \
-            -e NB_USER=runner \
-            -v "$PWD":/home/jovyan/data-lakehouse-ingest \
-            ghcr.io/berdatalakehouse/spark_notebook:main \
-            /bin/bash -lc "/home/jovyan/data-lakehouse-ingest/scripts/run_tests.sh"
+          uv run pytest tests/ -v \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5.5.1

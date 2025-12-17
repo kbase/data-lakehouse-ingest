@@ -15,6 +15,7 @@ from .utils.json_encoder import PipelineJSONEncoder
 
 _logger_instance = None
 
+
 class PipelineContextFilter(logging.Filter):
     """
     A custom logging filter that injects pipeline context (pipeline name, schema, table)
@@ -35,6 +36,7 @@ class PipelineContextFilter(logging.Filter):
         record.schema = self.schema
         record.target_table = self.target_table
         return True
+
 
 def setup_logger(
     log_dir: str | Path = Path("local_logs"),
@@ -79,9 +81,7 @@ def setup_logger(
     logger = logging.getLogger(logger_name)
 
     # Determine log level (argument > env var > default)
-    effective_log_level = (
-        log_level or os.getenv("PIPELINE_LOG_LEVEL", "DEBUG")
-    ).upper()
+    effective_log_level = (log_level or os.getenv("PIPELINE_LOG_LEVEL", "DEBUG")).upper()
     logger.setLevel(getattr(logging, effective_log_level, logging.DEBUG))
 
     # Clean up any existing handlers on this logger
@@ -116,6 +116,7 @@ def setup_logger(
     logger.log_file_path = log_file
     _logger_instance = logger
     return logger
+
 
 def safe_log_json(logger: logging.Logger, data: object) -> None:
     """

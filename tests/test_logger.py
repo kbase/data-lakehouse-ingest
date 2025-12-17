@@ -12,12 +12,13 @@ def reload_logger_module():
     importlib.reload(logger_module)
     yield
 
+
 def test_setup_logger_creates_file_and_logs_context(tmp_path):
     logger = setup_logger(
         log_dir=str(tmp_path),
         logger_name="test_logger",
         pipeline_name="pangenome_pipeline",
-        schema="pangenome_schema"
+        schema="pangenome_schema",
     )
 
     # Verify logger type
@@ -44,12 +45,14 @@ def test_setup_logger_creates_file_and_logs_context(tmp_path):
     assert "This is a test message" in log_entry["msg"]
     assert log_entry["level"] == "INFO"
 
+
 def test_logger_returns_same_instance(tmp_path):
     logger1 = setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
     logger2 = setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
 
     # Both should be identical (singleton behavior)
     assert logger1 is logger2
+
 
 def test_pipeline_context_filter_injects_fields():
     record = logging.LogRecord(

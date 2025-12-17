@@ -25,6 +25,7 @@ import logging
 from pyspark.sql import SparkSession
 from minio import Minio
 
+
 def process_tables(
     spark: SparkSession,
     logger: logging.Logger,

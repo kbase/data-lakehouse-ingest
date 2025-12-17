@@ -19,12 +19,11 @@ def minimal_config():
             {
                 "name": "browser_cazy_family",
                 "schema_sql": "id STRING",
-                "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv"
+                "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
             }
         ],
         "defaults": {"csv": {"header": True, "delimiter": ",", "inferSchema": False}},
     }
-
 
 
 @pytest.fixture
@@ -57,7 +56,9 @@ def test_load_from_local_file(minimal_config, mock_logger):
             json.dump(minimal_config, f)
         loader = ConfigLoader(str(safe_file), logger=mock_logger)
         assert loader.get_dataset() == "arkinlab"
-        mock_logger.info.assert_any_call(f"Loading configuration from local file: {safe_file.resolve()}")
+        mock_logger.info.assert_any_call(
+            f"Loading configuration from local file: {safe_file.resolve()}"
+        )
     finally:
         if safe_file.exists():
             safe_file.unlink()
@@ -87,9 +88,13 @@ def test_load_from_s3_success(minimal_config, mock_logger):
     mock_minio = MagicMock()
     mock_minio.get_object.return_value.__enter__.return_value = fake_response
 
-    loader = ConfigLoader("s3a://test-bucket/config.json", logger=mock_logger, minio_client=mock_minio)
+    loader = ConfigLoader(
+        "s3a://test-bucket/config.json", logger=mock_logger, minio_client=mock_minio
+    )
     assert loader.get_tenant().startswith("genomedepot")
-    mock_logger.info.assert_any_call("Fetching config from MinIO: bucket=test-bucket, key=config.json")
+    mock_logger.info.assert_any_call(
+        "Fetching config from MinIO: bucket=test-bucket, key=config.json"
+    )
 
 
 def test_load_from_s3_failure_s3error(mock_logger):
@@ -114,7 +119,9 @@ def test_missing_required_top_level_keys(mock_logger):
     bad_cfg = {"tenant": "t"}  # missing many keys
     with pytest.raises(ValueError):
         ConfigLoader(bad_cfg, logger=mock_logger)
-    mock_logger.error.assert_any_call("Missing required top-level keys: ['dataset', 'paths', 'tables']")
+    mock_logger.error.assert_any_call(
+        "Missing required top-level keys: ['dataset', 'paths', 'tables']"
+    )
 
 
 def test_missing_paths_section(mock_logger, minimal_config):
@@ -157,4 +164,6 @@ def test_get_defaults_for_unknown_format_warns(minimal_config, mock_logger):
     loader = ConfigLoader(minimal_config, logger=mock_logger)
     df = loader.get_defaults_for("parquet")
     assert df["delimiter"] == ","
-    mock_logger.warning.assert_any_call("No defaults found for format 'parquet', using safe fallback.")
+    mock_logger.warning.assert_any_call(
+        "No defaults found for format 'parquet', using safe fallback."
+    )

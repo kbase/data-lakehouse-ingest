@@ -3,6 +3,7 @@ Initialization utilities for the Data Lakehouse Ingest framework.
 Handles logger setup and Spark session context initialization,
 including tenant creation, catalog switching, and configuration extraction.
 """
+
 import logging
 from typing import Any
 from pyspark.sql import SparkSession
@@ -115,7 +116,9 @@ def init_run_context(
             base_path = None
 
     except Exception as e:
-        logger.error(f"Failed to create or access namespace for dataset '{dataset}': {e}", exc_info=True)
+        logger.error(
+            f"Failed to create or access namespace for dataset '{dataset}': {e}", exc_info=True
+        )
         raise
 
     logger.info("Ingestion context initialized successfully.")

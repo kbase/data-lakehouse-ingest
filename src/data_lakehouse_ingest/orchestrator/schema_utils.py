@@ -368,7 +368,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         col_name, col_type_raw = parts[0], parts[1]
         dtype = _to_pyspark_type(col_type_raw)
 
-        columns.append((col_name, dtype))
+        columns.append((col_name.strip(), dtype))
         logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")

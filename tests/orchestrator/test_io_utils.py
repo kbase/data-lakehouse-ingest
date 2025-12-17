@@ -27,7 +27,7 @@ def test_load_table_data_uses_correct_loader(mock_loader):
     mock_loader.return_value.count.return_value = 10
     mock_logger = MagicMock()
     mock_spark = MagicMock()
-    df, rows = load_table_data(mock_spark, "s3://bucket/data.json", "json", {}, mock_logger)
+    load_table_data(mock_spark, "s3://bucket/data.json", "json", {}, mock_logger)
     mock_loader.assert_called_once()
 
 

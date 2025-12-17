@@ -293,7 +293,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
     """
 
     def _to_pyspark_type(dt_raw: str) -> DataType:
-        dt = dt_raw.upper()
+        dt = dt_raw.upper().strip()
 
         # DECIMAL(p,s) special-case
         if dt.startswith("DECIMAL(") and dt.endswith(")"):

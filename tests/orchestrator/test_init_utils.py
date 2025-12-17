@@ -2,9 +2,11 @@ import logging
 from unittest.mock import MagicMock
 from data_lakehouse_ingest.orchestrator.init_utils import init_logger, init_run_context
 
+
 def test_init_logger_creates_default_logger():
     logger = init_logger(None)
     assert isinstance(logger, logging.Logger)
+
 
 def test_init_run_context_creates_tenant_and_tables():
     from data_lakehouse_ingest.orchestrator import init_utils
@@ -17,7 +19,6 @@ def test_init_run_context_creates_tenant_and_tables():
         MagicMock(info_name="location", info_value="s3a://dummy-path")
     ]
     mock_spark.catalog.setCurrentDatabase = MagicMock()
-
 
     mock_loader = MagicMock()
     mock_loader.config = {
@@ -40,4 +41,3 @@ def test_init_run_context_creates_tenant_and_tables():
     # Validate side effects
     init_utils.create_namespace_if_not_exists.assert_called_once()
     mock_spark.catalog.setCurrentDatabase.assert_called_once_with("demo_dataset")
-

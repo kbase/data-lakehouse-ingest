@@ -11,6 +11,7 @@ Purpose:
 import logging
 from pyspark.sql import SparkSession, DataFrame
 
+
 def load_xml_data(spark: SparkSession, path: str, opts: dict, logger: logging.Logger) -> DataFrame:
     """
     Load XML data into a Spark DataFrame using the spark-xml library.
@@ -35,7 +36,9 @@ def load_xml_data(spark: SparkSession, path: str, opts: dict, logger: logging.Lo
     row_tag = opts.get("rowTag")
     if not row_tag:
         logger.error("❌ Missing 'rowTag' for XML loader.")
-        raise ValueError("XML reader requires a 'rowTag' option in config defaults or table definition.")
+        raise ValueError(
+            "XML reader requires a 'rowTag' option in config defaults or table definition."
+        )
 
     try:
         # Read XML files using spark-xml and provided options

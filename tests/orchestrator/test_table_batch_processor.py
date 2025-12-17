@@ -15,12 +15,7 @@ def test_process_tables_success():
     loader = MagicMock()
     minio_client = MagicMock()
 
-    ctx = {
-        "tables": [
-            {"name": "table1"},
-            {"name": "table2"}
-        ]
-    }
+    ctx = {"tables": [{"name": "table1"}, {"name": "table2"}]}
 
     started_at = "2025-01-01T00:00:00Z"
 
@@ -30,9 +25,8 @@ def test_process_tables_success():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        side_effect=[mock_report_1, mock_report_2]
+        side_effect=[mock_report_1, mock_report_2],
     ) as mock_process_table:
-
         table_reports, error_list = process_tables(
             spark=spark,
             logger=logger,
@@ -48,6 +42,7 @@ def test_process_tables_success():
 
     # Ensure process_table was called twice (once per table)
     assert mock_process_table.call_count == 2
+
 
 def test_process_tables_with_exception():
     """
@@ -66,13 +61,12 @@ def test_process_tables_with_exception():
     # Mock process_table to raise an exception
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        side_effect=Exception("Test error")
+        side_effect=Exception("Test error"),
     ):
         with patch(
             "data_lakehouse_ingest.orchestrator.table_batch_processor.error_entry_for_exception",
-            return_value={"status": "error", "table": "boom_table", "error": "Test error"}
+            return_value={"status": "error", "table": "boom_table", "error": "Test error"},
         ) as mock_error_entry:
-
             table_reports, error_list = process_tables(
                 spark=spark,
                 logger=logger,
@@ -86,11 +80,7 @@ def test_process_tables_with_exception():
     assert len(table_reports) == 1
     assert len(error_list) == 1
 
-    assert table_reports[0] == {
-        "status": "error",
-        "table": "boom_table",
-        "error": "Test error"
-    }
+    assert table_reports[0] == {"status": "error", "table": "boom_table", "error": "Test error"}
 
     assert error_list[0] == table_reports[0]
 

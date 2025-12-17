@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from data_lakehouse_ingest.utils.report_utils import generate_report
 
+
 def test_generate_report_basic_success():
     """Test default success case with minimal inputs."""
     report = generate_report()
@@ -10,6 +11,7 @@ def test_generate_report_basic_success():
     assert "ended_at" in report
     assert report["duration_sec"] >= 0
     assert report["errors"] == []
+
 
 def test_generate_report_with_custom_inputs():
     """Test generate_report with custom values for all optional args."""
@@ -36,6 +38,7 @@ def test_generate_report_with_custom_inputs():
     assert report["tables"] == tables
     assert report["errors"] == errors
     assert report["run_id"] == "test_run_001"
+
 
 def test_generate_report_merges_extra_fields():
     """Test that extra fields are merged into report correctly."""

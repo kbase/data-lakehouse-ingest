@@ -6,17 +6,12 @@ Purpose:
     Supports CSV, TSV, and custom-delimited formats using Spark’s CSV reader, with structured logging.
 """
 
-
 import logging
 from pyspark.sql import SparkSession, DataFrame
 
 
 def load_dsv_data(
-    spark: SparkSession,
-    path: str,
-    opts: dict,
-    logger: logging.Logger,
-    delimiter: str = ","
+    spark: SparkSession, path: str, opts: dict, logger: logging.Logger, delimiter: str = ","
 ) -> DataFrame:
     """
     Load DSV (Delimiter-Separated Values) data into a Spark DataFrame.
@@ -38,7 +33,9 @@ def load_dsv_data(
         Exception: If reading or parsing the DSV data fails.
     """
     # Identify format label based on delimiter (for logging readability)
-    format_name = "TSV" if delimiter == "\t" else "CSV" if delimiter == "," else f"DSV('{delimiter}')"
+    format_name = (
+        "TSV" if delimiter == "\t" else "CSV" if delimiter == "," else f"DSV('{delimiter}')"
+    )
 
     logger.info(f"📂 Reading {format_name} data from: {path}")
 

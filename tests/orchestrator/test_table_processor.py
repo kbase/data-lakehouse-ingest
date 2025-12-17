@@ -35,11 +35,19 @@ def table_config():
 # ---------------------------------------------------------------------
 # Regular ingestion path
 # ---------------------------------------------------------------------
-@patch("data_lakehouse_ingest.orchestrator.table_processor.resolve_schema", return_value=("CREATE TABLE ...", "linkml"))
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
+    return_value=("CREATE TABLE ...", "linkml"),
+)
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
-@patch("data_lakehouse_ingest.orchestrator.table_processor.load_table_data", return_value=(MagicMock(), 100))
-@patch("data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
-        side_effect=lambda df, **_: (df, {"dropped_columns": []}))
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.load_table_data",
+    return_value=(MagicMock(), 100),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
+    side_effect=lambda df, **_: (df, {"dropped_columns": []}),
+)
 @patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
 def test_process_table_success(
     mock_write_to_delta,
@@ -52,7 +60,11 @@ def test_process_table_success(
     mock_loader,
     table_config,
 ):
-    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
+    ctx = {
+        "tenant": "tenant_alpha",
+        "namespace": "tenant_alpha__dataset",
+        "namespace_base_path": "s3a://silver/",
+    }
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
@@ -61,7 +73,6 @@ def test_process_table_success(
         table=table_config,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
-
 
     # Assertions
     assert result["status"] == "success"
@@ -80,9 +91,18 @@ def test_process_table_success(
 # Data load failure path
 # ---------------------------------------------------------------------
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
-@patch("data_lakehouse_ingest.orchestrator.table_processor.load_table_data", side_effect=Exception("Simulated load failure"))
-def test_process_table_data_load_failure(mock_load, mock_detect_format, mock_spark, mock_logger, mock_loader, table_config):
-    ctx = {"tenant": "tenant_alpha", "namespace": "tenant_alpha__dataset", "namespace_base_path": "s3a://silver/"}
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.load_table_data",
+    side_effect=Exception("Simulated load failure"),
+)
+def test_process_table_data_load_failure(
+    mock_load, mock_detect_format, mock_spark, mock_logger, mock_loader, table_config
+):
+    ctx = {
+        "tenant": "tenant_alpha",
+        "namespace": "tenant_alpha__dataset",
+        "namespace_base_path": "s3a://silver/",
+    }
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
@@ -96,4 +116,3 @@ def test_process_table_data_load_failure(mock_load, mock_detect_format, mock_spa
     assert result["phase"] == "data_loading"
     assert "Simulated load failure" in result["error"]
     mock_logger.error.assert_called_once()
-

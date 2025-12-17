@@ -7,9 +7,9 @@ __pycache__
 deploy.cfg
 .coverage
 test/test_temp/
-!src/data_lakehouse_ingest/minio_utils.py
-!src/data_lakehouse_ingest/spark_session.py
-config-json/
+src/data_lakehouse_ingest/minio_utils.py
+src/data_lakehouse_ingest/spark_session.py
+.ipynb_checkpoints/
 
 # Packaging artifacts
 *.egg-info/
@@ -34,3 +34,6 @@ htmlcov/
 # Virtual environments
 .venv/
 venv/
+
+# Structured logger output
+local_logs/

@@ -33,9 +33,11 @@ def mock_spark():
 
     return spark
 
+
 @pytest.fixture
 def mock_logger():
     return MagicMock()
+
 
 # ---------------------------------------------------------------------
 # data_lakehouse_ingest_config tests
@@ -54,6 +56,7 @@ def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger
     assert result["success"] is False
     assert "config_validation" in json.dumps(result)
 
+
 @patch("data_lakehouse_ingest.orchestrator.init_utils.create_namespace_if_not_exists")
 @patch("data_lakehouse_ingest.core.get_minio_client")
 @patch("data_lakehouse_ingest.core.process_tables")
@@ -67,10 +70,7 @@ def test_ingest_config_valid_json(
 ):
     mock_minio.return_value = MagicMock()
 
-    mock_process.return_value = (
-        [{"name": "table1", "status": "success"}],
-        []
-    )
+    mock_process.return_value = ([{"name": "table1", "status": "success"}], [])
 
     loader = mock_configloader.return_value
 
@@ -83,14 +83,16 @@ def test_ingest_config_valid_json(
     loader.get_namespace_base_path.return_value = "s3a://bucket/silver/"
 
     loader.get_all_defaults.return_value = {"json": {"header": True}}
-    loader.get_tables.return_value = [{
-        "name": "table1",
-        "format": "json",
-        "schema_sql": "id STRING, name STRING",
-        "bronze_path": "s3a://bucket/file.json",
-        "linkml_schema": None,
-        "silver_path": "s3a://bucket/silver/table1"
-    }]
+    loader.get_tables.return_value = [
+        {
+            "name": "table1",
+            "format": "json",
+            "schema_sql": "id STRING, name STRING",
+            "bronze_path": "s3a://bucket/file.json",
+            "linkml_schema": None,
+            "silver_path": "s3a://bucket/silver/table1",
+        }
+    ]
 
     loader.get_bronze_path.return_value = "s3a://bucket/file.json"
     loader.get_silver_path.return_value = "s3a://bucket/silver/table1"
@@ -100,8 +102,3 @@ def test_ingest_config_valid_json(
     assert result["success"] is True
     assert len(result["tables"]) == 1
     assert result["tables"][0]["status"] == "success"
-
-
-
-
-

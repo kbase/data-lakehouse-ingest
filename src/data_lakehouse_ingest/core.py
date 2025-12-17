@@ -90,7 +90,9 @@ def ingest(
     # MinIO Client Initialization
     # ----------------------------------------------------------------------
     if minio_client is None:
-        logger.info("No MinIO client provided — attempting auto-initialization via get_minio_client()")
+        logger.info(
+            "No MinIO client provided — attempting auto-initialization via get_minio_client()"
+        )
         try:
             minio_client = get_minio_client()
             logger.info("MinIO client successfully initialized via get_minio_client()")
@@ -109,9 +111,7 @@ def ingest(
 
     # Defensive check in case get_minio_client() returned None without raising
     if minio_client is None:
-        error_msg = (
-            "MinIO client is required for ingestion but was not provided or initialized."
-        )
+        error_msg = "MinIO client is required for ingestion but was not provided or initialized."
         return log_error(
             logger=logger,
             error_msg=error_msg,
@@ -159,12 +159,13 @@ def ingest(
     safe_log_json(logger, report)
     return report
 
+
 def log_error(
     logger: logging.Logger,
     error_msg: str,
     phase: str,
     started_at: str,
-    exc: Exception | None = None
+    exc: Exception | None = None,
 ) -> dict[str, Any]:
     """
     Log an ingestion error and generate a standardized failure report.
@@ -217,4 +218,3 @@ def log_error(
 
     safe_log_json(logger, report)
     return report
-

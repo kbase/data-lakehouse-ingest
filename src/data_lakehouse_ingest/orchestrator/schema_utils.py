@@ -5,6 +5,7 @@ Provides helpers to resolve table schemas, parse SQL-style schema definitions,
 and align DataFrame columns using governed Spark DataTypes, including support
 for DECIMAL(p,s) and ARRAY<T> types.
 """
+
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col, from_json
@@ -26,8 +27,10 @@ import logging
 from enum import Enum
 import re
 
+
 class SchemaSource(Enum):
     """Enum describing the origin of a resolved schema."""
+
     SCHEMA_SQL = "schema_sql"
     INFERRED = "inferred"
 
@@ -98,7 +101,7 @@ def apply_schema_columns(
     df: DataFrame,
     schema_sql: str | None,
     logger: logging.Logger,
-):
+) -> tuple[DataFrame, dict[str, list[str]]]:
     """
     Align DataFrame columns using a provided SQL-style schema definition.
 
@@ -169,12 +172,16 @@ def apply_schema_columns(
             Logger used to report alignment decisions and mismatch warnings.
 
     Returns:
-        pyspark.sql.DataFrame:
-            If schema_sql is provided:
-                A DataFrame ordered according to schema_sql and containing only
-                those columns.
-            If schema_sql is None:
-                The original DataFrame, unchanged.
+         tuple[pyspark.sql.DataFrame, dict[str, list[str]]]:
+            A tuple containing:
+            - DataFrame:
+                If schema_sql is provided, a DataFrame ordered according to
+                schema_sql and containing only those columns.
+                If schema_sql is None, the original DataFrame, unchanged.
+            - dict:
+                Metadata about schema application, currently including:
+                - "dropped_columns": list of column names that were present
+                in the input data but not defined in schema_sql.
     """
     # No schema provided → return as-is
     if not schema_sql:
@@ -208,19 +215,13 @@ def apply_schema_columns(
     for col_name, col_type in schema_defs:
         if isinstance(col_type, ArrayType):
             # Correct way to turn JSON string -> Spark ARRAY
-            projected_cols.append(
-                from_json(col(col_name), col_type).alias(col_name)
-            )
+            projected_cols.append(from_json(col(col_name), col_type).alias(col_name))
         else:
             # Normal scalar cast
-            projected_cols.append(
-                col(col_name).cast(col_type).alias(col_name)
-            )
-
+            projected_cols.append(col(col_name).cast(col_type).alias(col_name))
 
     # Name-based projection (safe): keeps only schema columns, in schema order
     df = df.select(*projected_cols)
-
 
     logger.info(f"Applied name-based schema alignment with columns: {target_cols}")
 
@@ -257,7 +258,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
     Parsing behavior:
         • Leading/trailing whitespace around tokens is ignored.
         • Data types are normalized to uppercase.
-        • A definition must contain at least two tokens: <name> <type>.
+        • A definition must contain exactly two tokens: <name> <type>.
         • Additional trailing tokens are not allowed (fail-fast behavior).
         • Invalid or unsupported data types raise ValueError with a
           descriptive error message.
@@ -290,12 +291,13 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         >>> parse_schema_sql("invalid")
         ValueError: Invalid column definition in schema_sql: 'invalid'
     """
+
     def _to_pyspark_type(dt_raw: str) -> DataType:
-        dt = dt_raw.upper()
+        dt = dt_raw.upper().strip()
 
         # DECIMAL(p,s) special-case
         if dt.startswith("DECIMAL(") and dt.endswith(")"):
-            inner = dt[len("DECIMAL("):-1]
+            inner = dt[len("DECIMAL(") : -1]
             try:
                 precision_str, scale_str = inner.split(",")
                 precision = int(precision_str.strip())
@@ -329,7 +331,6 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
             "DATE": DateType(),
             "TIMESTAMP": TimestampType(),
         }
-
 
         if dt not in mapping:
             logger.error(
@@ -367,7 +368,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         col_name, col_type_raw = parts[0], parts[1]
         dtype = _to_pyspark_type(col_type_raw)
 
-        columns.append((col_name, dtype))
+        columns.append((col_name.strip(), dtype))
         logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")

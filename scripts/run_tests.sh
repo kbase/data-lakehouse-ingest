@@ -10,9 +10,6 @@ cd "$SCRIPT_DIR"
 
 echo "Running Spark tests inside container from: $SCRIPT_DIR"
 
-# Install project dependencies inside the container
-uv sync --group dev
-
 # Run pytest using uv environment
 # --cov=src       → measure coverage for project code
 # --cov-report=xml → write coverage.xml for Codecov

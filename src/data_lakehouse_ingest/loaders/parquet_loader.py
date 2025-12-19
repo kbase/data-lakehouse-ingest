@@ -17,17 +17,33 @@ def load_parquet_data(
     """
     Load Parquet data into a Spark DataFrame.
 
+    This function reads one or more Parquet files from the given path using
+    Spark's native Parquet reader. Parquet is a schema-aware, columnar format,
+    so schema inference is handled automatically by Spark at read time.
+
+    Reader options are optional and typically not required for Parquet, but
+    custom options may be supplied (e.g., for schema merging). The function
+    logs the source path and the number of records successfully loaded.
+
     Args:
-        spark (SparkSession): Active Spark session.
-        path (str): Path to Parquet file(s) (local, s3a://, etc.).
-        opts (dict | None): Reader options (rarely needed for Parquet).
-        logger (logging.Logger): Structured logger.
+        spark (SparkSession):
+            Active Spark session used to read the Parquet data.
+        path (str):
+            Path to the Parquet file or directory (local filesystem, s3a://, etc.).
+        opts (dict | None):
+            Optional Spark reader options. If None, no options are applied.
+        logger (logging.Logger):
+            Structured logger used for emitting ingestion progress and errors.
 
     Returns:
-        DataFrame: Loaded DataFrame.
+        DataFrame:
+            Spark DataFrame containing the loaded Parquet data.
 
     Raises:
-        Exception: On any read or parse failure.
+        Exception:
+            Propagates any exception raised during read or count operations
+            after logging the error, allowing upstream orchestration logic
+            to handle failures appropriately.
     """
 
     logger.info(f"📂 Reading PARQUET data from: {path}")

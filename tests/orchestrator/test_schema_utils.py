@@ -93,6 +93,7 @@ def test_parse_schema_sql_raises_on_unsupported_type():
     ):
         parse_schema_sql("id SUPERSTRING", mock_logger)
 
+
 def test_parse_schema_sql_array_string():
     logger = MagicMock()
     result = parse_schema_sql("tags ARRAY<STRING>", logger)
@@ -111,6 +112,7 @@ def test_parse_schema_sql_nested_array():
     result = parse_schema_sql("matrix ARRAY<ARRAY<DOUBLE>>", logger)
     assert isinstance(result[0][1], ArrayType)
     assert isinstance(result[0][1].elementType, ArrayType)
+
 
 # ----------------------------------------------------------------------
 # apply_schema_columns tests
@@ -168,4 +170,3 @@ def test_apply_schema_columns_drops_extra_columns():
     assert df2.collect() == [(1, "A")]
 
     assert meta["dropped_columns"] == ["extra"]
-

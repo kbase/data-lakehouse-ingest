@@ -23,20 +23,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7.1.2
-        with:
-          enable-cache: true
 
       - name: Install dependencies
         run: uv sync
 
       - name: Run code formatting checks
-        shell: bash -l {0}
-        continue-on-error: false
         run: uv run ruff format --check
 
   code_linting:
@@ -46,13 +40,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7.1.2
-        with:
-          enable-cache: true
 
       - name: Install dependencies
         run: uv sync
@@ -73,8 +63,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7.1.2
@@ -88,6 +76,4 @@ jobs:
         run: uv sync --dev
 
       - name: Run local tests
-        shell: bash -l {0}
-        continue-on-error: false
-        run: uv run pytest -m "not requires_spark"
+        run: uv run pytest -m "not requires_spark" --cov=src --cov-report=xml

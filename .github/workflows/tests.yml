@@ -77,3 +77,9 @@ jobs:
 
       - name: Run local tests
         run: uv run pytest -m "not requires_spark" --cov=src --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true

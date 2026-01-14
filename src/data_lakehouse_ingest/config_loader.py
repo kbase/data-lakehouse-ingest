@@ -180,11 +180,15 @@ class ConfigLoader:
             self.logger.error(f"Missing required top-level keys: {missing_top}")
             raise ValueError(f"Missing required top-level keys: {missing_top}")
 
-        required_paths = ["bronze_base", "silver_base"]
-        missing_paths = [k for k in required_paths if k not in self.config["paths"]]
-        if missing_paths:
-            self.logger.error(f"Missing required path keys: {missing_paths}")
-            raise ValueError(f"Missing required path keys: {missing_paths}")
+        # 'paths' is optional; validate only if present
+        if "paths" in self.config:
+            required_paths = ["bronze_base"]
+            missing_paths = [k for k in required_paths if k not in self.config["paths"]]
+            if missing_paths:
+                self.logger.error(f"Missing required path keys: {missing_paths}")
+                raise ValueError(f"Missing required path keys: {missing_paths}")
+        else:
+            self.logger.info("No 'paths' section found in config — skipping base path validation.")
 
         tables = self.config.get("tables", [])
         if not isinstance(tables, list) or not tables:
@@ -293,9 +297,12 @@ class ConfigLoader:
         summary = {
             "dataset": self.get_dataset(),
             "num_tables": len(self.get_tables()),
-            "bronze_base": self.config["paths"]["bronze_base"],
-            "silver_base": self.config["paths"]["silver_base"],
         }
+
+        paths = self.config.get("paths")
+        if isinstance(paths, dict):
+            if "bronze_base" in paths:
+                summary["bronze_base"] = paths["bronze_base"]
 
         # Add tenant only if present
         tenant = self.get_tenant()

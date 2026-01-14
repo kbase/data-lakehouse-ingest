@@ -174,7 +174,7 @@ class ConfigLoader:
         Raises:
             ValueError: If required keys are missing or invalid.
         """
-        required_top = ["dataset", "paths", "tables"]
+        required_top = ["dataset", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
             self.logger.error(f"Missing required top-level keys: {missing_top}")

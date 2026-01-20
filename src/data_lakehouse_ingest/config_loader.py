@@ -196,10 +196,50 @@ class ConfigLoader:
             raise ValueError("Config must contain a non-empty 'tables' list")
 
         for t in tables:
-            for key in ["name", "schema_sql"]:
-                if key not in t:
-                    self.logger.error(f"Table entry missing required key: {key}")
-                    raise ValueError(f"Table entry missing required key: {key}")
+            if "name" not in t:
+                self.logger.error("Table entry missing required key: name")
+                raise ValueError("Table entry missing required key: name")
+
+            has_schema_sql = isinstance(t.get("schema_sql"), str) and t["schema_sql"].strip()
+            has_schema_list = isinstance(t.get("schema"), list) and len(t["schema"]) > 0
+
+            if not (has_schema_sql or has_schema_list):
+                self.logger.error(
+                    f"Table '{t.get('name', '<unknown>')}' must define either "
+                    f"'schema_sql' (string) or 'schema' (list of column maps)."
+                )
+                raise ValueError(
+                    f"Table '{t.get('name', '<unknown>')}' must define either "
+                    f"'schema_sql' (string) or 'schema' (list of column maps)."
+                )
+
+            # Optional: validate structured schema entries if present
+            if has_schema_list:
+                for i, coldef in enumerate(t["schema"]):
+                    if not isinstance(coldef, dict):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry at index {i} must be an object/map."
+                        )
+                    if not (coldef.get("column") or coldef.get("name")):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry at index {i} missing 'column' (or 'name')."
+                        )
+                    if not coldef.get("type"):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' missing 'type'."
+                        )
+                    if "nullable" in coldef and not isinstance(coldef["nullable"], bool):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' has non-boolean 'nullable'."
+                        )
+                    if "comment" in coldef and not isinstance(coldef["comment"], str):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' has non-string 'comment'."
+                        )
+
 
         # Optional but useful warnings
         if "defaults" not in self.config:
@@ -241,6 +281,13 @@ class ConfigLoader:
                 return t
         self.logger.warning(f"Requested table '{name}' not found in configuration.")
         return None
+
+    def get_table_schema(self, table_name: str) -> list[dict[str, Any]] | None:
+        t = self.get_table(table_name)
+        if not t:
+            return None
+        schema = t.get("schema")
+        return schema if isinstance(schema, list) else None
 
     def is_table_enabled(self, name: str) -> bool:
         """

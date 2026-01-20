@@ -28,10 +28,67 @@ from enum import Enum
 import re
 
 
+def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> DataType:
+    """
+    Convert a string type spec into a PySpark DataType.
+
+    Supports:
+      - Primitive types (STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, DATE, TIMESTAMP)
+      - DECIMAL(p,s)
+      - ARRAY<T> (including nested arrays)
+    """
+    dt = dt_raw.upper().strip()
+
+    # DECIMAL(p,s)
+    if dt.startswith("DECIMAL(") and dt.endswith(")"):
+        inner = dt[len("DECIMAL(") : -1]
+        try:
+            precision_str, scale_str = inner.split(",")
+            precision = int(precision_str.strip())
+            scale = int(scale_str.strip())
+        except Exception as exc:
+            logger.error(f"Invalid DECIMAL definition '{dt_raw}': {exc}")
+            raise ValueError(f"Invalid DECIMAL definition '{dt_raw}'") from exc
+        return DecimalType(precision=precision, scale=scale)
+
+    # ARRAY<T>
+    array_match = re.match(r"^ARRAY<(.+)>$", dt)
+    if array_match:
+        inner_type_raw = array_match.group(1).strip()
+        inner_type = _to_pyspark_type(inner_type_raw, logger, context=context)  # recursive
+        return ArrayType(inner_type)
+
+    # Primitive types
+    mapping: dict[str, DataType] = {
+        "STRING": StringType(),
+        "INT": IntegerType(),
+        "INTEGER": IntegerType(),
+        "BIGINT": LongType(),
+        "LONG": LongType(),
+        "DOUBLE": DoubleType(),
+        "FLOAT": FloatType(),
+        "BOOLEAN": BooleanType(),
+        "DATE": DateType(),
+        "TIMESTAMP": TimestampType(),
+    }
+
+    if dt not in mapping:
+        logger.error(
+            f"Unsupported data type '{dt_raw}' in {context} "
+            "(expected STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, "
+            "DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>)."
+        )
+        raise ValueError(f"Unsupported data type '{dt_raw}' in {context}.")
+
+    return mapping[dt]
+
+
+
 class SchemaSource(Enum):
     """Enum describing the origin of a resolved schema."""
 
     SCHEMA_SQL = "schema_sql"
+    SCHEMA_STRUCTURED = "schema"
     INFERRED = "inferred"
 
 
@@ -40,7 +97,7 @@ def resolve_schema(
     table: dict[str, object],
     logger: logging.Logger,
     minio_client: Minio | None = None,
-) -> tuple[str | None, SchemaSource]:
+) -> tuple[object | None, SchemaSource]:
     """
     Resolve the schema definition for a given table.
 
@@ -78,6 +135,7 @@ def resolve_schema(
           LinkML schema and return a corresponding SQL-style definition.
     """
     schema_sql = table.get("schema_sql")
+    schema = table.get("schema")
     linkml_schema = table.get("linkml_schema")
 
     if linkml_schema:
@@ -89,7 +147,11 @@ def resolve_schema(
         raise NotImplementedError(msg)
         # TODO: Implement LinkML schema parsing once linkml_parser is ready
 
-    if schema_sql:
+    if isinstance(schema, list) and schema:
+        logger.info(f"Using structured schema for table {table.get('name')}")
+        return schema, SchemaSource.SCHEMA_STRUCTURED
+
+    if isinstance(schema_sql, str) and schema_sql.strip():
         logger.info(f"Using schema_sql for table {table.get('name')}")
         return schema_sql, SchemaSource.SCHEMA_SQL
 
@@ -99,7 +161,8 @@ def resolve_schema(
 
 def apply_schema_columns(
     df: DataFrame,
-    schema_sql: str | None,
+    schema_def: object | None,
+    schema_source: SchemaSource,
     logger: logging.Logger,
 ) -> tuple[DataFrame, dict[str, list[str]]]:
     """
@@ -184,12 +247,25 @@ def apply_schema_columns(
                 in the input data but not defined in schema_sql.
     """
     # No schema provided → return as-is
-    if not schema_sql:
-        logger.info("No schema_sql provided; skipping schema alignment.")
+    if not schema_def or schema_source == SchemaSource.INFERRED:
+        logger.info("No schema provided; skipping schema alignment.")
         return df, {"dropped_columns": []}
 
     # Parse SQL schema into structured representation
-    schema_defs = parse_schema_sql(schema_sql, logger)
+    if schema_source == SchemaSource.SCHEMA_SQL:
+        if not isinstance(schema_def, str):
+            raise ValueError("Expected schema_def to be a string for SCHEMA_SQL.")
+        schema_defs = parse_schema_sql(schema_def, logger)
+
+    elif schema_source == SchemaSource.SCHEMA_STRUCTURED:
+        if not isinstance(schema_def, list):
+            raise ValueError("Expected schema_def to be a list for SCHEMA_STRUCTURED.")
+        schema_defs = parse_schema_structured(schema_def, logger)
+
+    else:
+        logger.info("No schema provided; skipping schema alignment.")
+        return df, {"dropped_columns": []}
+    
     target_cols = [name for name, _ in schema_defs]
     current_cols = df.columns
 
@@ -205,7 +281,7 @@ def apply_schema_columns(
     # Log extra columns (they will be dropped automatically via select)
     if extra_cols:
         logger.warning(
-            f"Extra columns in data not present in schema_sql: {extra_cols}. "
+            f"Extra columns in data not present in declared schema: {extra_cols}. "
             "These columns will be excluded from the output."
         )
 
@@ -292,56 +368,6 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         ValueError: Invalid column definition in schema_sql: 'invalid'
     """
 
-    def _to_pyspark_type(dt_raw: str) -> DataType:
-        dt = dt_raw.upper().strip()
-
-        # DECIMAL(p,s) special-case
-        if dt.startswith("DECIMAL(") and dt.endswith(")"):
-            inner = dt[len("DECIMAL(") : -1]
-            try:
-                precision_str, scale_str = inner.split(",")
-                precision = int(precision_str.strip())
-                scale = int(scale_str.strip())
-            except Exception as exc:
-                logger.error(f"Invalid DECIMAL definition '{dt_raw}': {exc}")
-                raise ValueError(f"Invalid DECIMAL definition '{dt_raw}'") from exc
-            return DecimalType(precision=precision, scale=scale)
-
-        # ----------------------------
-        # ARRAY<TYPE>
-        # ----------------------------
-        array_match = re.match(r"^ARRAY<(.+)>$", dt)
-        if array_match:
-            inner_type_raw = array_match.group(1).strip()
-            inner_type = _to_pyspark_type(inner_type_raw)  # recursive
-            return ArrayType(inner_type)
-
-        # ----------------------------
-        # Primitive Types
-        # ----------------------------
-        mapping: dict[str, DataType] = {
-            "STRING": StringType(),
-            "INT": IntegerType(),
-            "INTEGER": IntegerType(),
-            "BIGINT": LongType(),
-            "LONG": LongType(),
-            "DOUBLE": DoubleType(),
-            "FLOAT": FloatType(),
-            "BOOLEAN": BooleanType(),
-            "DATE": DateType(),
-            "TIMESTAMP": TimestampType(),
-        }
-
-        if dt not in mapping:
-            logger.error(
-                f"Unsupported data type '{dt_raw}' in schema_sql "
-                "(expected one of STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, "
-                "DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>)."
-            )
-            raise ValueError(f"Unsupported data type '{dt_raw}' in schema_sql.")
-
-        return mapping[dt]
-
     logger.info(f"Parsing SQL schema definition: {schema_sql}")
 
     columns: list[tuple[str, DataType]] = []
@@ -366,10 +392,38 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
             )
 
         col_name, col_type_raw = parts[0], parts[1]
-        dtype = _to_pyspark_type(col_type_raw)
+        dtype = _to_pyspark_type(col_type_raw, logger, context="schema_sql")
 
         columns.append((col_name.strip(), dtype))
         logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")
     return columns
+
+
+def parse_schema_structured(
+    schema: list[dict[str, object]],
+    logger: logging.Logger,
+) -> list[tuple[str, DataType]]:
+    
+    if not isinstance(schema, list):
+        raise ValueError(f"Structured schema must be a list, got {type(schema).__name__}.")
+
+    cols: list[tuple[str, DataType]] = []
+    for i, coldef in enumerate(schema):
+        if not isinstance(coldef, dict):
+            raise ValueError(f"Invalid schema entry at index {i}: expected object/map")
+
+        name = coldef.get("column") or coldef.get("name")
+        if not name:
+            raise ValueError(f"Schema entry at index {i} missing 'column'/'name'")
+
+        typ = coldef.get("type")
+        if not typ:
+            raise ValueError(f"Schema entry for '{name}' missing 'type'")
+
+        dtype = _to_pyspark_type(str(typ), logger, context="structured schema")
+        cols.append((str(name), dtype))
+
+    logger.info(f"Successfully parsed {len(cols)} columns from structured schema.")
+    return cols

@@ -121,7 +121,7 @@ def process_table(
     fmt = detect_format(bronze_path, table.get("format"))
 
     # --- Resolve schema (LinkML takes precedence) ---
-    schema_sql, schema_source = resolve_schema(
+    schema_def, schema_source = resolve_schema(
         spark=spark, table=table, logger=logger, minio_client=minio_client
     )
 
@@ -157,9 +157,11 @@ def process_table(
     # --- Apply schema (rename; optionally drop extras if requested) ---
     df, schema_meta = apply_schema_columns(
         df=df,
-        schema_sql=schema_sql,
+        schema_def=schema_def,
+        schema_source=schema_source,
         logger=logger,
     )
+
 
     dropped_cols = schema_meta.get("dropped_columns", [])
 

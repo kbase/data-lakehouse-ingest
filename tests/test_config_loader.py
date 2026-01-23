@@ -119,9 +119,7 @@ def test_missing_required_top_level_keys(mock_logger):
     bad_cfg = {"tenant": "t"}  # missing many keys
     with pytest.raises(ValueError):
         ConfigLoader(bad_cfg, logger=mock_logger)
-    mock_logger.error.assert_any_call(
-        "Missing required top-level keys: ['dataset', 'paths', 'tables']"
-    )
+    mock_logger.error.assert_any_call("Missing required top-level keys: ['dataset', 'tables']")
 
 
 def test_missing_paths_section(mock_logger, minimal_config):
@@ -131,11 +129,17 @@ def test_missing_paths_section(mock_logger, minimal_config):
     mock_logger.error.assert_called()
 
 
-def test_missing_table_key(mock_logger, minimal_config):
+def test_missing_table_key_no_schema_is_allowed(mock_logger, minimal_config):
+    # schema_sql is optional now
     del minimal_config["tables"][0]["schema_sql"]
-    with pytest.raises(ValueError):
-        ConfigLoader(minimal_config, logger=mock_logger)
-    mock_logger.error.assert_any_call("Table entry missing required key: schema_sql")
+
+    loader = ConfigLoader(minimal_config, logger=mock_logger)
+    assert loader.get_table("browser_cazy_family") is not None
+
+    mock_logger.info.assert_any_call(
+        "Table 'browser_cazy_family' has no explicit schema ('schema_sql'/'schema'); "
+        "schema will be inferred by the loader."
+    )
 
 
 # ---------------------------------------------------------------------

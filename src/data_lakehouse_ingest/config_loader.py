@@ -239,7 +239,7 @@ class ConfigLoader:
                             f"Table '{t['name']}' schema entry for column "
                             f"'{coldef.get('column') or coldef.get('name')}' has non-string 'comment'."
                         )
-            
+
             # Optional: warn if neither schema_sql nor schema is provided (means "infer")
             if not has_schema_sql and not has_schema_list:
                 self.logger.info(

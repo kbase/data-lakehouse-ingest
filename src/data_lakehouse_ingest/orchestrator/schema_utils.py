@@ -83,7 +83,6 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
     return mapping[dt]
 
 
-
 class SchemaSource(Enum):
     """Enum describing the origin of a resolved schema."""
 
@@ -265,7 +264,7 @@ def apply_schema_columns(
     else:
         logger.info("No schema provided; skipping schema alignment.")
         return df, {"dropped_columns": []}
-    
+
     target_cols = [name for name, _ in schema_defs]
     current_cols = df.columns
 
@@ -405,7 +404,6 @@ def parse_schema_structured(
     schema: list[dict[str, object]],
     logger: logging.Logger,
 ) -> list[tuple[str, DataType]]:
-    
     if not isinstance(schema, list):
         raise ValueError(f"Structured schema must be a list, got {type(schema).__name__}.")
 

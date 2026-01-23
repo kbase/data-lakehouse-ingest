@@ -162,7 +162,6 @@ def process_table(
         logger=logger,
     )
 
-
     dropped_cols = schema_meta.get("dropped_columns", [])
 
     # --- Write to Delta ---

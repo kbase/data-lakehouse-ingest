@@ -181,9 +181,12 @@ class ConfigLoader:
             raise ValueError(f"Missing required top-level keys: {missing_top}")
 
         # 'paths' is optional; validate only if present
-        if "paths" in self.config:
+        paths = self.config.get("paths")
+        if paths is not None:
+            if not isinstance(paths, dict):
+                raise ValueError("'paths' must be an object/map when provided.")
             required_paths = ["bronze_base"]
-            missing_paths = [k for k in required_paths if k not in self.config["paths"]]
+            missing_paths = [k for k in required_paths if k not in paths]
             if missing_paths:
                 self.logger.error(f"Missing required path keys: {missing_paths}")
                 raise ValueError(f"Missing required path keys: {missing_paths}")
@@ -200,22 +203,19 @@ class ConfigLoader:
                 self.logger.error("Table entry missing required key: name")
                 raise ValueError("Table entry missing required key: name")
 
-            has_schema_sql = isinstance(t.get("schema_sql"), str) and t["schema_sql"].strip()
-            has_schema_list = isinstance(t.get("schema"), list) and len(t["schema"]) > 0
+            # schema is OPTIONAL again
+            schema_sql = t.get("schema_sql")
+            schema_list = t.get("schema")
 
-            if not (has_schema_sql or has_schema_list):
-                self.logger.error(
-                    f"Table '{t.get('name', '<unknown>')}' must define either "
-                    f"'schema_sql' (string) or 'schema' (list of column maps)."
-                )
-                raise ValueError(
-                    f"Table '{t.get('name', '<unknown>')}' must define either "
-                    f"'schema_sql' (string) or 'schema' (list of column maps)."
-                )
+            has_schema_sql = isinstance(schema_sql, str) and schema_sql.strip()
+            has_schema_list = isinstance(schema_list, list) and len(schema_list) > 0
 
-            # Optional: validate structured schema entries if present
+            if schema_sql is not None and not isinstance(schema_sql, str):
+                raise ValueError(f"Table '{t['name']}' schema_sql must be a string or null.")
+
             if has_schema_list:
-                for i, coldef in enumerate(t["schema"]):
+                # validate structured schema entries if present
+                for i, coldef in enumerate(schema_list):
                     if not isinstance(coldef, dict):
                         raise ValueError(
                             f"Table '{t['name']}' schema entry at index {i} must be an object/map."
@@ -239,7 +239,13 @@ class ConfigLoader:
                             f"Table '{t['name']}' schema entry for column "
                             f"'{coldef.get('column') or coldef.get('name')}' has non-string 'comment'."
                         )
-
+            
+            # Optional: warn if neither schema_sql nor schema is provided (means "infer")
+            if not has_schema_sql and not has_schema_list:
+                self.logger.info(
+                    f"Table '{t['name']}' has no explicit schema ('schema_sql'/'schema'); "
+                    f"schema will be inferred by the loader."
+                )
 
         # Optional but useful warnings
         if "defaults" not in self.config:
@@ -326,8 +332,13 @@ class ConfigLoader:
         raise ValueError(msg)
 
     def get_silver_path(self, table_name: str) -> str:
-        base = self.config["paths"]["silver_base"].rstrip("/")
-        return f"{base}/{table_name}"
+        paths = self.config.get("paths") or {}
+        base = paths.get("silver_base")
+        if not base:
+            raise ValueError(
+                "Cannot resolve silver path because config.paths.silver_base is not set."
+            )
+        return f"{base.rstrip('/')}/{table_name}"
 
     def get_defaults_for(self, fmt: str) -> dict[str, Any]:
         defaults = self.config.get("defaults", {})

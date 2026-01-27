@@ -17,9 +17,9 @@ from typing import Any
 from minio import Minio
 from pyspark.sql import SparkSession
 
-from .schema_utils import resolve_schema, apply_schema_columns
-from .io_utils import detect_format, load_table_data, write_to_delta
-
+from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns, SchemaSource
+from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_table_data, write_to_delta
+from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
 def process_table(
     spark: SparkSession,
@@ -39,7 +39,10 @@ def process_table(
     - Loads data from the Bronze path via Spark
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
+    - Applies Delta column comments when a structured (list-of-maps) schema is used
     - Returns a structured report entry summarizing ingestion results
+
+    Column comments are applied only when the resolved schema source is `SchemaSource.SCHEMA_STRUCTURED`.
 
     Args:
         spark (SparkSession):
@@ -78,6 +81,7 @@ def process_table(
                 - "name", "tenant", "target_table"
                 - "bronze_path", "silver_path"
                 - "rows_in", "rows_written", "elapsed_sec"
+                - "comments_report": result of applying column comments, or None if not applicable
                 - "status": "success" or "failed"
                 - Additional diagnostic fields for errors or special handlers.
 
@@ -179,6 +183,20 @@ def process_table(
         logger=logger,
     )
 
+    comments_report = None
+
+    # Apply column comments only when schema is list-of-maps (structured schema)
+    if schema_source == SchemaSource.SCHEMA_STRUCTURED and isinstance(schema_def, list):
+        full_table_name = f"{namespace}.{name}"
+        comments_report = apply_comments_from_table_schema(
+            spark=spark,
+            full_table_name=full_table_name,
+            table_schema=schema_def,  # list-of-maps
+            logger=logger,
+            require_existing_table=True,
+        )
+        logger.info(f"Column comment apply report: {comments_report}")
+
     rows_rejected = 0
     partitions_written = None
     quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
@@ -203,4 +221,5 @@ def process_table(
         "quarantine_path": quarantine_path,
         "elapsed_sec": elapsed_sec,
         "status": "success",
+        "comments_report": comments_report,
     }

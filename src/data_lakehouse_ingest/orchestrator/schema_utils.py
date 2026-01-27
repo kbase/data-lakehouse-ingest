@@ -30,12 +30,32 @@ import re
 
 def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> DataType:
     """
-    Convert a string type spec into a PySpark DataType.
+    Convert a type specification string into a PySpark DataType.
 
-    Supports:
-      - Primitive types (STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, DATE, TIMESTAMP)
-      - DECIMAL(p,s)
-      - ARRAY<T> (including nested arrays)
+    This helper is used by both SQL-style schemas (schema_sql) and structured
+    schemas (schema list-of-maps) to produce governed Spark DataTypes.
+
+    Supported forms:
+      - Primitive types (case-insensitive):
+          STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, DATE, TIMESTAMP
+      - DECIMAL(p,s):
+          e.g., DECIMAL(10,2)
+      - ARRAY<T> (recursive, supports nesting):
+          e.g., ARRAY<STRING>, ARRAY<DOUBLE>, ARRAY<ARRAY<INT>>
+
+    Args:
+        dt_raw: The raw type string from config (e.g., "int", "DECIMAL(10,2)", "ARRAY<STRING>").
+        logger: Logger used for error reporting.
+        context: Short label describing where the type came from (e.g., "schema_sql", "structured schema").
+
+    Returns:
+        A PySpark DataType instance corresponding to the provided type string.
+
+    Raises:
+        ValueError:
+            - If DECIMAL(p,s) syntax is invalid.
+            - If ARRAY<T> syntax is invalid.
+            - If the type is unsupported.
     """
     dt = dt_raw.upper().strip()
 
@@ -84,8 +104,18 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
 
 
 class SchemaSource(Enum):
-    """Enum describing the origin of a resolved schema."""
+    """
+    Origin of the resolved schema for a table.
 
+    Values:
+        SCHEMA_SQL:
+            Schema provided via `schema_sql` (SQL-style "col TYPE, col TYPE, ...").
+        SCHEMA_STRUCTURED:
+            Schema provided via `schema` as a structured list-of-maps
+            (e.g., [{"column": "id", "type": "INT"}, ...]).
+        INFERRED:
+            No explicit schema provided; Spark infers schema from the source files.
+    """
     SCHEMA_SQL = "schema_sql"
     SCHEMA_STRUCTURED = "schema"
     INFERRED = "inferred"
@@ -102,10 +132,12 @@ def resolve_schema(
 
     Current behavior (LinkML not yet supported):
         - If a LinkML schema path is provided, the function logs an error and
-          raises NotImplementedError. There is **no** automatic fallback to SQL
-          when LinkML is present.
-        - If `schema_sql` is provided (and no LinkML schema), it is returned and
-          marked as SchemaSource.SCHEMA_SQL.
+          raises NotImplementedError. There is **no** automatic fallback to
+          structured or SQL schemas when LinkML is present.
+        - If `schema` is provided as a non-empty list, it is returned and marked
+          as SchemaSource.SCHEMA_STRUCTURED.
+        - If `schema_sql` is provided, it is returned and marked as
+          SchemaSource.SCHEMA_SQL.
         - If neither is provided, the schema is treated as inferred and marked
           as SchemaSource.INFERRED.
 
@@ -113,7 +145,7 @@ def resolve_schema(
         spark (SparkSession): Active Spark session (unused until LinkML is implemented).
         table (dict): Full table definition from the ingestion config.
             This dict may include many fields (e.g., name, bronze_path, enabled,
-            schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.).
+            schema, schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.).
             Only the schema-related fields are used in this function.
         logger (logging.Logger): Logger for reporting resolution decisions.
         minio_client (Minio | None): Placeholder for future MinIO-based schema retrieval.
@@ -122,10 +154,12 @@ def resolve_schema(
 
     Returns:
         tuple[str | None, SchemaSource]:
-            - schema_sql (str | None): The resolved SQL-style schema string,
-              or None if the schema is inferred.
-            - schema_source (SchemaSource): Enum indicating where the schema
-              came from (SchemaSource.SCHEMA_SQL or SchemaSource.INFERRED).
+            - schema_def (object | None):
+                * list[dict] when SchemaSource.SCHEMA_STRUCTURED
+                * str when SchemaSource.SCHEMA_SQL
+                * None when SchemaSource.INFERRED
+            - schema_source (SchemaSource):
+                Enum indicating where the schema came from.
 
     Notes:
         - LinkML parsing is not implemented yet. When a LinkML path is present,
@@ -203,17 +237,17 @@ def apply_schema_columns(
            in the exact order they were declared.
 
     Behavior overview:
-        • When `schema_sql` is None:
+        • When the schema is inferred:
             - No schema alignment is performed.
             - The DataFrame is returned unchanged.
-            - This corresponds to the “inferred schema” path, where the ingestion
-            pipeline relies on Spark's natural column order (from file headers).
+            - This corresponds to the inferred schema path, where the ingestion
+              pipeline relies on Spark's natural column order.
 
-        • When `schema_sql` is provided:
+        • When an explicit schema is provided:
             - Validates required columns.
             - Drops extra columns.
-            - Casts columns to their declared SQL types.
-            - Reorders columns to match schema_sql.
+            - Casts columns to their declared types.
+            - Reorders columns to match the declared schema.
 
     This design ensures that:
         - Users can specify schema_sql columns in any order, independent of the raw
@@ -225,11 +259,13 @@ def apply_schema_columns(
     Args:
         df (pyspark.sql.DataFrame):
             The input DataFrame loaded from raw/bronze data.
-        schema_sql (str | None):
-            SQL-style schema definition, e.g.,
-                "id INT, name STRING, age INT".
-            Determines required columns, type cast targets, and final column order.
-            If None, no alignment is applied.
+        schema_def (object | None):
+            Schema definition:
+              - str when schema_source is SCHEMA_SQL
+              - list when schema_source is SCHEMA_STRUCTURED
+              - None when schema_source is INFERRED
+        schema_source (SchemaSource):
+            Indicates how the schema_def should be interpreted.
         logger (logging.Logger):
             Logger used to report alignment decisions and mismatch warnings.
 
@@ -341,6 +377,8 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
     Args:
         schema_sql (str):
             A comma-separated SQL-style schema definition.
+        logger (logging.Logger):
+            Logger used for parse diagnostics and error reporting.
 
     Returns:
         list[tuple[str, DataType]]:
@@ -404,6 +442,37 @@ def parse_schema_structured(
     schema: list[dict[str, object]],
     logger: logging.Logger,
 ) -> list[tuple[str, DataType]]:
+    """
+    Parse a structured schema (list-of-maps) into a list of (column_name, DataType) tuples.
+
+    Expected input format:
+        [
+          {"column": "id", "type": "INT"},
+          {"name": "gene_id", "type": "STRING"},
+          ...
+        ]
+
+    Key rules:
+      - Each entry must be a dict/map.
+      - Column name is taken from "column" or "name".
+      - Type must be present under "type".
+      - Types support the same set as SQL schemas via _to_pyspark_type(...):
+          primitives, DECIMAL(p,s), ARRAY<T> (including nested arrays)
+
+    Args:
+        schema: Structured schema list-of-maps.
+        logger: Logger used for parse diagnostics.
+
+    Returns:
+        List of (column_name, Spark DataType) tuples, in the same order as the input list.
+
+    Raises:
+        ValueError:
+            - If schema is not a list.
+            - If any entry is not a dict.
+            - If required keys are missing ("column"/"name", "type").
+            - If a type is invalid or unsupported.
+    """
     if not isinstance(schema, list):
         raise ValueError(f"Structured schema must be a list, got {type(schema).__name__}.")
 
@@ -412,16 +481,18 @@ def parse_schema_structured(
         if not isinstance(coldef, dict):
             raise ValueError(f"Invalid schema entry at index {i}: expected object/map")
 
-        name = coldef.get("column") or coldef.get("name")
-        if not name:
+        col_name = coldef.get("column") or coldef.get("name")
+        if not col_name:
             raise ValueError(f"Schema entry at index {i} missing 'column'/'name'")
 
         typ = coldef.get("type")
         if not typ:
-            raise ValueError(f"Schema entry for '{name}' missing 'type'")
+            raise ValueError(f"Schema entry for '{col_name}' missing 'type'")
 
         dtype = _to_pyspark_type(str(typ), logger, context="structured schema")
-        cols.append((str(name), dtype))
+        cols.append((str(col_name), dtype))
+
+        logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 
     logger.info(f"Successfully parsed {len(cols)} columns from structured schema.")
     return cols

@@ -167,9 +167,12 @@ class ConfigLoader:
         Validate minimal required configuration structure.
 
         Ensures:
-          - Required top-level keys exist (tenant, dataset, paths, tables)
-          - Required path keys exist (bronze_base, silver_base)
-          - Each table defines 'name' and 'schema_sql'
+          - Required top-level keys exist (dataset, tables)
+          - 'paths' is optional; if present, it must include 'bronze_base'
+          - Each table defines 'name'
+          - Table schema may be provided via 'schema_sql' (string) or
+            'schema' (list of column definitions); if neither is provided,
+            schema inference is allowed
 
         Raises:
             ValueError: If required keys are missing or invalid.
@@ -305,31 +308,53 @@ class ConfigLoader:
             return False
         return bool(table.get("enabled", True))
 
-    def get_bronze_path(self, table_name: str) -> str | None:
+    def get_bronze_path(self, table_name: str) -> str:
         """
         Resolve the Bronze path for a given table.
 
-        Rules:
-        1. If the table defines 'bronze_path', return it.
-        2. Otherwise, raise an explicit error — we do not guess or synthesize paths.
+        Supported forms for 'bronze_path':
+        - Absolute URI (e.g., s3a://...) → used as-is
+        - '${bronze_base}/file.ext' → substituted using config.paths.bronze_base
+        - 'file.ext' or 'subdir/file.ext' → joined with config.paths.bronze_base
+
+        Raises:
+            ValueError: If the table is not found, 'bronze_path' is missing,
+                        or 'paths.bronze_base' is required but not set.
         """
         t = self.get_table(table_name)
         if not t:
-            msg = f"Cannot resolve bronze path — table '{table_name}' not found in configuration."
-            self.logger.error(msg)
-            raise ValueError(msg)
+            raise ValueError(
+                f"Cannot resolve bronze path — table '{table_name}' not found in configuration."
+            )
 
-        # Must be explicitly defined
         bronze_path = t.get("bronze_path")
-        if bronze_path:
+        if not bronze_path or not isinstance(bronze_path, str):
+            raise ValueError(
+                f"'bronze_path' must be defined as a string for table '{table_name}'."
+            )
+
+        bronze_path = bronze_path.strip()
+
+        # Absolute path → return as-is
+        if "://" in bronze_path:
             return bronze_path
 
-        msg = (
-            f"'bronze_path' not defined for table '{table_name}'. "
-            f"Each table must specify an explicit Bronze path in configuration."
-        )
-        self.logger.error(msg)
-        raise ValueError(msg)
+        paths = self.config.get("paths") or {}
+        bronze_base = paths.get("bronze_base")
+        if not bronze_base:
+            raise ValueError(
+                f"Cannot resolve bronze_path for table '{table_name}' because "
+                f"config.paths.bronze_base is not set."
+            )
+
+        # Variable substitution
+        if bronze_path.startswith("${bronze_base}"):
+            suffix = bronze_path[len("${bronze_base}") :].lstrip("/")
+            return f"{bronze_base.rstrip('/')}/{suffix}"
+
+        # Relative path / filename
+        return f"{bronze_base.rstrip('/')}/{bronze_path.lstrip('/')}"
+
 
     def get_silver_path(self, table_name: str) -> str:
         paths = self.config.get("paths") or {}

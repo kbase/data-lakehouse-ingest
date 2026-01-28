@@ -233,3 +233,18 @@ def test_parse_schema_structured_raises_on_unsupported_type():
     logger = MagicMock()
     with pytest.raises(ValueError, match=r"Unsupported data type 'SUPERSTRING'"):
         parse_schema_structured([{"column": "id", "type": "SUPERSTRING"}], logger)
+
+
+def test_resolve_schema_returns_structured_schema_precedence():
+    table = {
+        "name": "t1",
+        "schema": [{"column": "id", "type": "INT"}],
+        "schema_sql": "id STRING",
+    }
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    schema, source = resolve_schema(mock_spark, table, mock_logger)
+
+    assert schema == [{"column": "id", "type": "INT"}]
+    assert source == SchemaSource.SCHEMA_STRUCTURED

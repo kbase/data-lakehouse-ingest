@@ -123,17 +123,21 @@ def test_missing_required_top_level_keys(mock_logger):
 
 
 def test_missing_paths_section(mock_logger, minimal_config):
-    del minimal_config["paths"]["bronze_base"]
+    cfg = dict(minimal_config)
+    cfg["paths"] = dict(cfg["paths"])
+    del cfg["paths"]["bronze_base"]
+
     with pytest.raises(ValueError):
-        ConfigLoader(minimal_config, logger=mock_logger)
+        ConfigLoader(cfg, logger=mock_logger)
     mock_logger.error.assert_called()
 
 
 def test_missing_table_key_no_schema_is_allowed(mock_logger, minimal_config):
-    # schema_sql is optional now
-    del minimal_config["tables"][0]["schema_sql"]
+    cfg = dict(minimal_config)
+    cfg["tables"] = [dict(cfg["tables"][0])]
+    del cfg["tables"][0]["schema_sql"]
 
-    loader = ConfigLoader(minimal_config, logger=mock_logger)
+    loader = ConfigLoader(cfg, logger=mock_logger)
     assert loader.get_table("browser_cazy_family") is not None
 
     mock_logger.info.assert_any_call(
@@ -171,3 +175,91 @@ def test_get_defaults_for_unknown_format_warns(minimal_config, mock_logger):
     mock_logger.warning.assert_any_call(
         "No defaults found for format 'parquet', using safe fallback."
     )
+
+
+def test_paths_section_can_be_omitted(mock_logger, minimal_config):
+    # Remove paths entirely (now allowed)
+    cfg = dict(minimal_config)
+    cfg.pop("paths", None)
+
+    loader = ConfigLoader(cfg, logger=mock_logger)
+    assert loader.get_dataset() == "arkinlab"
+    assert loader.get_paths() == {}
+    mock_logger.info.assert_any_call(
+        "No 'paths' section found in config — skipping base path validation."
+    )
+
+
+def test_get_silver_path_requires_silver_base(mock_logger, minimal_config):
+    # Paths present but silver_base missing -> get_silver_path should raise
+    cfg = dict(minimal_config)
+    cfg["paths"] = {"bronze_base": "s3a://bucket/bronze"}  # omit silver_base
+
+    loader = ConfigLoader(cfg, logger=mock_logger)
+    with pytest.raises(ValueError):
+        loader.get_silver_path("any_table")
+
+
+def test_get_bronze_path_substitutes_bronze_base(mock_logger, minimal_config):
+    cfg = dict(minimal_config)
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema_sql": "id STRING",
+            "bronze_path": "${bronze_base}/browser_cazy_family.csv",
+        }
+    ]
+
+    loader = ConfigLoader(cfg, logger=mock_logger)
+    assert loader.get_bronze_path("browser_cazy_family") == (
+        "s3a://bucket/bronze/browser_cazy_family.csv"
+    )
+
+
+def test_get_bronze_path_joins_relative_filename_with_bronze_base(mock_logger, minimal_config):
+    cfg = dict(minimal_config)
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema_sql": "id STRING",
+            "bronze_path": "browser_cazy_family.csv",
+        }
+    ]
+
+    loader = ConfigLoader(cfg, logger=mock_logger)
+    assert loader.get_bronze_path("browser_cazy_family") == (
+        "s3a://bucket/bronze/browser_cazy_family.csv"
+    )
+
+
+def test_structured_schema_is_accepted(mock_logger, minimal_config):
+    cfg = dict(minimal_config)
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema": [
+                {"column": "id", "type": "STRING", "nullable": True, "comment": "primary id"},
+                {"name": "name", "type": "STRING"},
+            ],
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+        }
+    ]
+
+    loader = ConfigLoader(cfg, logger=mock_logger)
+    schema = loader.get_table_schema("browser_cazy_family")
+    assert isinstance(schema, list)
+    assert schema[0]["column"] == "id"
+
+
+def test_structured_schema_missing_type_raises(mock_logger, minimal_config):
+    cfg = dict(minimal_config)
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema": [{"column": "id"}],  # missing type
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+        }
+    ]
+
+    with pytest.raises(ValueError):
+        ConfigLoader(cfg, logger=mock_logger)

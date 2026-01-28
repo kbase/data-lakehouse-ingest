@@ -329,9 +329,7 @@ class ConfigLoader:
 
         bronze_path = t.get("bronze_path")
         if not bronze_path or not isinstance(bronze_path, str):
-            raise ValueError(
-                f"'bronze_path' must be defined as a string for table '{table_name}'."
-            )
+            raise ValueError(f"'bronze_path' must be defined as a string for table '{table_name}'.")
 
         bronze_path = bronze_path.strip()
 
@@ -354,7 +352,6 @@ class ConfigLoader:
 
         # Relative path / filename
         return f"{bronze_base.rstrip('/')}/{bronze_path.lstrip('/')}"
-
 
     def get_silver_path(self, table_name: str) -> str:
         paths = self.config.get("paths") or {}

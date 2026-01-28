@@ -1,5 +1,4 @@
 import logging
-import pytest
 
 from data_lakehouse_ingest.utils.delta_comments import (
     _escape_sql_string,
@@ -141,4 +140,6 @@ def test_apply_comments_skips_missing_or_empty_comments_and_applies_valid_ones()
     assert report["applied"] == 1
     assert report["skipped"] == 3
     assert report["failed"] == 0
-    assert any(d.get("status") == "applied" and d.get("column") == "gene_id" for d in report["details"])
+    assert any(
+        d.get("status") == "applied" and d.get("column") == "gene_id" for d in report["details"]
+    )

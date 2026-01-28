@@ -116,6 +116,7 @@ class SchemaSource(Enum):
         INFERRED:
             No explicit schema provided; Spark infers schema from the source files.
     """
+
     SCHEMA_SQL = "schema_sql"
     SCHEMA_STRUCTURED = "schema"
     INFERRED = "inferred"

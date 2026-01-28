@@ -17,9 +17,18 @@ from typing import Any
 from minio import Minio
 from pyspark.sql import SparkSession
 
-from data_lakehouse_ingest.orchestrator.schema_utils import resolve_schema, apply_schema_columns, SchemaSource
-from data_lakehouse_ingest.orchestrator.io_utils import detect_format, load_table_data, write_to_delta
+from data_lakehouse_ingest.orchestrator.schema_utils import (
+    resolve_schema,
+    apply_schema_columns,
+    SchemaSource,
+)
+from data_lakehouse_ingest.orchestrator.io_utils import (
+    detect_format,
+    load_table_data,
+    write_to_delta,
+)
 from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
+
 
 def process_table(
     spark: SparkSession,

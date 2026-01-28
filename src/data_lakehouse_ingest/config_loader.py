@@ -167,24 +167,34 @@ class ConfigLoader:
         Validate minimal required configuration structure.
 
         Ensures:
-          - Required top-level keys exist (tenant, dataset, paths, tables)
-          - Required path keys exist (bronze_base, silver_base)
-          - Each table defines 'name' and 'schema_sql'
+          - Required top-level keys exist (dataset, tables)
+          - 'paths' is optional; if present, it must include 'bronze_base'
+          - Each table defines 'name'
+          - Table schema may be provided via 'schema_sql' (string) or
+            'schema' (list of column definitions); if neither is provided,
+            schema inference is allowed
 
         Raises:
             ValueError: If required keys are missing or invalid.
         """
-        required_top = ["dataset", "paths", "tables"]
+        required_top = ["dataset", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
             self.logger.error(f"Missing required top-level keys: {missing_top}")
             raise ValueError(f"Missing required top-level keys: {missing_top}")
 
-        required_paths = ["bronze_base", "silver_base"]
-        missing_paths = [k for k in required_paths if k not in self.config["paths"]]
-        if missing_paths:
-            self.logger.error(f"Missing required path keys: {missing_paths}")
-            raise ValueError(f"Missing required path keys: {missing_paths}")
+        # 'paths' is optional; validate only if present
+        paths = self.config.get("paths")
+        if paths is not None:
+            if not isinstance(paths, dict):
+                raise ValueError("'paths' must be an object/map when provided.")
+            required_paths = ["bronze_base"]
+            missing_paths = [k for k in required_paths if k not in paths]
+            if missing_paths:
+                self.logger.error(f"Missing required path keys: {missing_paths}")
+                raise ValueError(f"Missing required path keys: {missing_paths}")
+        else:
+            self.logger.info("No 'paths' section found in config — skipping base path validation.")
 
         tables = self.config.get("tables", [])
         if not isinstance(tables, list) or not tables:
@@ -192,10 +202,53 @@ class ConfigLoader:
             raise ValueError("Config must contain a non-empty 'tables' list")
 
         for t in tables:
-            for key in ["name", "schema_sql"]:
-                if key not in t:
-                    self.logger.error(f"Table entry missing required key: {key}")
-                    raise ValueError(f"Table entry missing required key: {key}")
+            if "name" not in t:
+                self.logger.error("Table entry missing required key: name")
+                raise ValueError("Table entry missing required key: name")
+
+            # schema is OPTIONAL again
+            schema_sql = t.get("schema_sql")
+            schema_list = t.get("schema")
+
+            has_schema_sql = isinstance(schema_sql, str) and schema_sql.strip()
+            has_schema_list = isinstance(schema_list, list) and len(schema_list) > 0
+
+            if schema_sql is not None and not isinstance(schema_sql, str):
+                raise ValueError(f"Table '{t['name']}' schema_sql must be a string or null.")
+
+            if has_schema_list:
+                # validate structured schema entries if present
+                for i, coldef in enumerate(schema_list):
+                    if not isinstance(coldef, dict):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry at index {i} must be an object/map."
+                        )
+                    if not (coldef.get("column") or coldef.get("name")):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry at index {i} missing 'column' (or 'name')."
+                        )
+                    if not coldef.get("type"):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' missing 'type'."
+                        )
+                    if "nullable" in coldef and not isinstance(coldef["nullable"], bool):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' has non-boolean 'nullable'."
+                        )
+                    if "comment" in coldef and not isinstance(coldef["comment"], str):
+                        raise ValueError(
+                            f"Table '{t['name']}' schema entry for column "
+                            f"'{coldef.get('column') or coldef.get('name')}' has non-string 'comment'."
+                        )
+
+            # Optional: warn if neither schema_sql nor schema is provided (means "infer")
+            if not has_schema_sql and not has_schema_list:
+                self.logger.info(
+                    f"Table '{t['name']}' has no explicit schema ('schema_sql'/'schema'); "
+                    f"schema will be inferred by the loader."
+                )
 
         # Optional but useful warnings
         if "defaults" not in self.config:
@@ -238,6 +291,13 @@ class ConfigLoader:
         self.logger.warning(f"Requested table '{name}' not found in configuration.")
         return None
 
+    def get_table_schema(self, table_name: str) -> list[dict[str, Any]] | None:
+        t = self.get_table(table_name)
+        if not t:
+            return None
+        schema = t.get("schema")
+        return schema if isinstance(schema, list) else None
+
     def is_table_enabled(self, name: str) -> bool:
         """
         Check if a table is marked as enabled in the config.
@@ -248,35 +308,59 @@ class ConfigLoader:
             return False
         return bool(table.get("enabled", True))
 
-    def get_bronze_path(self, table_name: str) -> str | None:
+    def get_bronze_path(self, table_name: str) -> str:
         """
         Resolve the Bronze path for a given table.
 
-        Rules:
-        1. If the table defines 'bronze_path', return it.
-        2. Otherwise, raise an explicit error — we do not guess or synthesize paths.
+        Supported forms for 'bronze_path':
+        - Absolute URI (e.g., s3a://...) → used as-is
+        - '${bronze_base}/file.ext' → substituted using config.paths.bronze_base
+        - 'file.ext' or 'subdir/file.ext' → joined with config.paths.bronze_base
+
+        Raises:
+            ValueError: If the table is not found, 'bronze_path' is missing,
+                        or 'paths.bronze_base' is required but not set.
         """
         t = self.get_table(table_name)
         if not t:
-            msg = f"Cannot resolve bronze path — table '{table_name}' not found in configuration."
-            self.logger.error(msg)
-            raise ValueError(msg)
+            raise ValueError(
+                f"Cannot resolve bronze path — table '{table_name}' not found in configuration."
+            )
 
-        # Must be explicitly defined
         bronze_path = t.get("bronze_path")
-        if bronze_path:
+        if not bronze_path or not isinstance(bronze_path, str):
+            raise ValueError(f"'bronze_path' must be defined as a string for table '{table_name}'.")
+
+        bronze_path = bronze_path.strip()
+
+        # Absolute path → return as-is
+        if "://" in bronze_path:
             return bronze_path
 
-        msg = (
-            f"'bronze_path' not defined for table '{table_name}'. "
-            f"Each table must specify an explicit Bronze path in configuration."
-        )
-        self.logger.error(msg)
-        raise ValueError(msg)
+        paths = self.config.get("paths") or {}
+        bronze_base = paths.get("bronze_base")
+        if not bronze_base:
+            raise ValueError(
+                f"Cannot resolve bronze_path for table '{table_name}' because "
+                f"config.paths.bronze_base is not set."
+            )
+
+        # Variable substitution
+        if bronze_path.startswith("${bronze_base}"):
+            suffix = bronze_path[len("${bronze_base}") :].lstrip("/")
+            return f"{bronze_base.rstrip('/')}/{suffix}"
+
+        # Relative path / filename
+        return f"{bronze_base.rstrip('/')}/{bronze_path.lstrip('/')}"
 
     def get_silver_path(self, table_name: str) -> str:
-        base = self.config["paths"]["silver_base"].rstrip("/")
-        return f"{base}/{table_name}"
+        paths = self.config.get("paths") or {}
+        base = paths.get("silver_base")
+        if not base:
+            raise ValueError(
+                "Cannot resolve silver path because config.paths.silver_base is not set."
+            )
+        return f"{base.rstrip('/')}/{table_name}"
 
     def get_defaults_for(self, fmt: str) -> dict[str, Any]:
         defaults = self.config.get("defaults", {})
@@ -293,9 +377,12 @@ class ConfigLoader:
         summary = {
             "dataset": self.get_dataset(),
             "num_tables": len(self.get_tables()),
-            "bronze_base": self.config["paths"]["bronze_base"],
-            "silver_base": self.config["paths"]["silver_base"],
         }
+
+        paths = self.config.get("paths")
+        if isinstance(paths, dict):
+            if "bronze_base" in paths:
+                summary["bronze_base"] = paths["bronze_base"]
 
         # Add tenant only if present
         tenant = self.get_tenant()

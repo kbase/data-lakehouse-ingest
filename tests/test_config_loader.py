@@ -117,9 +117,12 @@ def test_load_from_s3_failure_s3error(mock_logger):
 # ---------------------------------------------------------------------
 def test_missing_required_top_level_keys(mock_logger):
     bad_cfg = {"tenant": "t"}  # missing many keys
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as excinfo:
         ConfigLoader(bad_cfg, logger=mock_logger)
-    mock_logger.error.assert_any_call("Missing required top-level keys: ['dataset', 'tables']")
+
+    msg = str(excinfo.value)
+    assert "Missing required top-level keys: ['dataset', 'tables']" in msg
+    assert "Config must contain a non-empty 'tables' list" in msg
 
 
 def test_missing_paths_section(mock_logger, minimal_config):

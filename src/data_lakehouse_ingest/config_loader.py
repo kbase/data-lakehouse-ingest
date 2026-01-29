@@ -177,82 +177,113 @@ class ConfigLoader:
         Raises:
             ValueError: If required keys are missing or invalid.
         """
+        validation_errors: list[str] = []
+
+        # ---- Top-level required keys ----
         required_top = ["dataset", "tables"]
         missing_top = [k for k in required_top if k not in self.config]
         if missing_top:
-            self.logger.error(f"Missing required top-level keys: {missing_top}")
-            raise ValueError(f"Missing required top-level keys: {missing_top}")
+            validation_errors.append(f"Missing required top-level keys: {missing_top}")
 
-        # 'paths' is optional; validate only if present
+        # ---- paths (optional) ----
         paths = self.config.get("paths")
         if paths is not None:
             if not isinstance(paths, dict):
-                raise ValueError("'paths' must be an object/map when provided.")
-            required_paths = ["bronze_base"]
-            missing_paths = [k for k in required_paths if k not in paths]
-            if missing_paths:
-                self.logger.error(f"Missing required path keys: {missing_paths}")
-                raise ValueError(f"Missing required path keys: {missing_paths}")
+                validation_errors.append("'paths' must be an object/map when provided.")
+            else:
+                required_paths = ["bronze_base"]
+                missing_paths = [k for k in required_paths if k not in paths]
+                if missing_paths:
+                    validation_errors.append(f"Missing required path keys: {missing_paths}")
         else:
             self.logger.info("No 'paths' section found in config — skipping base path validation.")
 
+        # ---- tables ----
         tables = self.config.get("tables", [])
         if not isinstance(tables, list) or not tables:
-            self.logger.error("Config must contain a non-empty 'tables' list")
-            raise ValueError("Config must contain a non-empty 'tables' list")
+            validation_errors.append("Config must contain a non-empty 'tables' list")
+            tables = []  # allow continued validation safely
 
-        for t in tables:
+        for idx, t in enumerate(tables):
+            if not isinstance(t, dict):
+                validation_errors.append(f"Table entry at index {idx} must be an object/map.")
+                continue
+
             if "name" not in t:
-                self.logger.error("Table entry missing required key: name")
-                raise ValueError("Table entry missing required key: name")
+                validation_errors.append(f"Table entry at index {idx} missing required key: name")
+                continue
 
-            # schema is OPTIONAL again
+            if not isinstance(t["name"], str) or not t["name"].strip():
+                validation_errors.append(
+                    f"Table entry at index {idx} has invalid 'name' (must be non-empty string)."
+                )
+                continue
+
+            table_name = t["name"]
+
             schema_sql = t.get("schema_sql")
             schema_list = t.get("schema")
+
+            if schema_list is not None and not isinstance(schema_list, list):
+                validation_errors.append(
+                    f"Table '{table_name}' schema must be a list when provided."
+                )
+                schema_list = None
+
+            if schema_sql is not None and not isinstance(schema_sql, str):
+                validation_errors.append(
+                    f"Table '{table_name}' schema_sql must be a string or null."
+                )
 
             has_schema_sql = isinstance(schema_sql, str) and schema_sql.strip()
             has_schema_list = isinstance(schema_list, list) and len(schema_list) > 0
 
-            if schema_sql is not None and not isinstance(schema_sql, str):
-                raise ValueError(f"Table '{t['name']}' schema_sql must be a string or null.")
-
             if has_schema_list:
-                # validate structured schema entries if present
                 for i, coldef in enumerate(schema_list):
                     if not isinstance(coldef, dict):
-                        raise ValueError(
-                            f"Table '{t['name']}' schema entry at index {i} must be an object/map."
+                        validation_errors.append(
+                            f"Table '{table_name}' schema entry at index {i} must be an object/map."
                         )
-                    if not (coldef.get("column") or coldef.get("name")):
-                        raise ValueError(
-                            f"Table '{t['name']}' schema entry at index {i} missing 'column' (or 'name')."
+                        continue
+
+                    col_name = coldef.get("column") or coldef.get("name")
+                    if not col_name:
+                        validation_errors.append(
+                            f"Table '{table_name}' schema entry at index {i} missing 'column' (or 'name')."
                         )
                     if not coldef.get("type"):
-                        raise ValueError(
-                            f"Table '{t['name']}' schema entry for column "
-                            f"'{coldef.get('column') or coldef.get('name')}' missing 'type'."
+                        validation_errors.append(
+                            f"Table '{table_name}' schema entry for column "
+                            f"'{col_name or f'<unknown@{i}>'}' missing 'type'."
                         )
                     if "nullable" in coldef and not isinstance(coldef["nullable"], bool):
-                        raise ValueError(
-                            f"Table '{t['name']}' schema entry for column "
-                            f"'{coldef.get('column') or coldef.get('name')}' has non-boolean 'nullable'."
+                        validation_errors.append(
+                            f"Table '{table_name}' schema entry for column "
+                            f"'{col_name}' has non-boolean 'nullable'."
                         )
                     if "comment" in coldef and not isinstance(coldef["comment"], str):
-                        raise ValueError(
-                            f"Table '{t['name']}' schema entry for column "
-                            f"'{coldef.get('column') or coldef.get('name')}' has non-string 'comment'."
+                        validation_errors.append(
+                            f"Table '{table_name}' schema entry for column "
+                            f"'{col_name}' has non-string 'comment'."
                         )
 
-            # Optional: warn if neither schema_sql nor schema is provided (means "infer")
             if not has_schema_sql and not has_schema_list:
                 self.logger.info(
-                    f"Table '{t['name']}' has no explicit schema ('schema_sql'/'schema'); "
+                    f"Table '{table_name}' has no explicit schema ('schema_sql'/'schema'); "
                     f"schema will be inferred by the loader."
                 )
 
-        # Optional but useful warnings
+        # ---- Optional warnings ----
         if "defaults" not in self.config:
             self.logger.warning("No 'defaults' section found in config — using built-in defaults.")
+
+        # ---- Single raise at the end ----
+        if validation_errors:
+            msg = "Config validation failed with the following error(s):\n- " + "\n- ".join(
+                validation_errors
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         self.logger.info("Minimal config validation passed")
 

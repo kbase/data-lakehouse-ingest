@@ -224,6 +224,7 @@ class ConfigLoader:
             schema_sql = t.get("schema_sql")
             schema_list = t.get("schema")
 
+            # ---- schema validation ----
             if schema_list is not None and not isinstance(schema_list, list):
                 validation_errors.append(
                     f"Table '{table_name}' schema must be a list when provided."
@@ -234,10 +235,21 @@ class ConfigLoader:
                 validation_errors.append(
                     f"Table '{table_name}' schema_sql must be a string or null."
                 )
+                schema_sql = None
 
-            has_schema_sql = isinstance(schema_sql, str) and schema_sql.strip()
-            has_schema_list = isinstance(schema_list, list) and len(schema_list) > 0
+            # ---- schema presence checks (types already validated) ----
+            has_schema_list = bool(schema_list)
+            has_schema_sql = bool(schema_sql and schema_sql.strip())
 
+            # If neither is provided, nothing else to validate here
+            if not has_schema_sql and not has_schema_list:
+                self.logger.info(
+                    f"Table '{table_name}' has no explicit schema ('schema_sql'/'schema'); "
+                    f"schema will be inferred by the loader."
+                )
+                continue
+
+            # ---- in-depth validation for structured schema ----
             if has_schema_list:
                 for i, coldef in enumerate(schema_list):
                     if not isinstance(coldef, dict):
@@ -267,20 +279,14 @@ class ConfigLoader:
                             f"'{col_name}' has non-string 'comment'."
                         )
 
-            if not has_schema_sql and not has_schema_list:
-                self.logger.info(
-                    f"Table '{table_name}' has no explicit schema ('schema_sql'/'schema'); "
-                    f"schema will be inferred by the loader."
-                )
-
         # ---- Optional warnings ----
         if "defaults" not in self.config:
             self.logger.warning("No 'defaults' section found in config — using built-in defaults.")
 
         # ---- Single raise at the end ----
         if validation_errors:
-            msg = "Config validation failed with the following error(s):\n- " + "\n- ".join(
-                validation_errors
+            msg = ":\n- ".join(
+                ["Config validation failed with the following error(s):", *validation_errors]
             )
             self.logger.error(msg)
             raise ValueError(msg)

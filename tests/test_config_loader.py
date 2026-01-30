@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
@@ -125,14 +126,21 @@ def test_missing_required_top_level_keys(mock_logger):
     assert "Config must contain a non-empty 'tables' list" in msg
 
 
-def test_missing_paths_section(mock_logger, minimal_config):
-    cfg = dict(minimal_config)
-    cfg["paths"] = dict(cfg["paths"])
+def test_missing_paths_section_logs_and_raises(minimal_config, caplog):
+    cfg = minimal_config.copy()  # avoid mutating fixture
+    cfg["paths"] = cfg["paths"].copy()
     del cfg["paths"]["bronze_base"]
 
-    with pytest.raises(ValueError):
-        ConfigLoader(cfg, logger=mock_logger)
-    mock_logger.error.assert_called()
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ValueError) as excinfo:
+            ConfigLoader(cfg)
+
+    # Exception message (optional but good)
+    assert "Missing required path keys: ['bronze_base']" in str(excinfo.value)
+
+    # Log message (this is what caplog adds value for)
+    assert "Config validation failed" in caplog.text
+    assert "Missing required path keys: ['bronze_base']" in caplog.text
 
 
 def test_missing_table_key_no_schema_is_allowed(mock_logger, minimal_config):

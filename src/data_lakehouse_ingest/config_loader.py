@@ -374,12 +374,12 @@ class ConfigLoader:
         if "://" in bronze_path:
             return bronze_path
 
-        paths = self.config.get("paths") or {}
-        bronze_base = paths.get("bronze_base")
+        paths = self.config.get("paths")
+        bronze_base = paths.get("bronze_base") if isinstance(paths, dict) else None
         if not bronze_base:
             raise ValueError(
                 f"Cannot resolve bronze_path for table '{table_name}' because "
-                f"config.paths.bronze_base is not set."
+                "config.paths.bronze_base is not set."
             )
 
         # Variable substitution

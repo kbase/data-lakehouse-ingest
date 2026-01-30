@@ -127,7 +127,7 @@ def test_missing_required_top_level_keys(mock_logger):
 
 
 def test_missing_paths_section_logs_and_raises(minimal_config, caplog):
-    cfg = minimal_config.copy()      # avoid mutating fixture
+    cfg = minimal_config.copy()  # avoid mutating fixture
     cfg["paths"] = cfg["paths"].copy()
     del cfg["paths"]["bronze_base"]
 

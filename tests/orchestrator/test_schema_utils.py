@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType, StringType, DoubleType, ArrayType
+from pyspark.sql.types import IntegerType, StringType, DoubleType, DecimalType, ArrayType
 from data_lakehouse_ingest.orchestrator.schema_utils import (
     resolve_schema,
     apply_schema_columns,
@@ -37,10 +37,15 @@ def test_resolve_schema_returns_schema_sql():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    schema, source = resolve_schema(mock_spark, table, mock_logger)
+    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
 
-    assert schema == "id INT, name STRING"
     assert source == SchemaSource.SCHEMA_SQL
+
+    assert schema_defs[0][0] == "id"
+    assert isinstance(schema_defs[0][1], IntegerType)
+
+    assert schema_defs[1][0] == "name"
+    assert isinstance(schema_defs[1][1], StringType)
 
 
 def test_resolve_schema_returns_inferred_when_none_present():
@@ -114,6 +119,33 @@ def test_parse_schema_sql_nested_array():
     assert isinstance(result[0][1].elementType, ArrayType)
 
 
+def test_parse_schema_sql_decimal_parses_success():
+    logger = MagicMock()
+
+    result = parse_schema_sql("amount DECIMAL(10,2)", logger)
+
+    assert result[0][0] == "amount"
+    assert isinstance(result[0][1], DecimalType)
+    assert result[0][1].precision == 10
+    assert result[0][1].scale == 2
+
+
+def test_parse_schema_sql_decimal_raises_on_invalid_definition():
+    logger = MagicMock()
+
+    with pytest.raises(ValueError, match=r"Invalid DECIMAL definition"):
+        parse_schema_sql("amount DECIMAL(10)", logger)  # missing scale part
+
+    logger.error.assert_called()
+
+
+def test_parse_schema_sql_raises_on_trailing_comma_empty_segment():
+    logger = MagicMock()
+
+    with pytest.raises(ValueError, match="Empty column definition in schema_sql"):
+        parse_schema_sql("id INT,", logger)
+
+
 # ----------------------------------------------------------------------
 # apply_schema_columns tests
 # ----------------------------------------------------------------------
@@ -124,7 +156,8 @@ def test_apply_schema_columns_casts_and_orders_columns():
     schema_sql = "id INT, name STRING, value DOUBLE"
     mock_logger = MagicMock()
 
-    df2, meta = apply_schema_columns(df, schema_sql, SchemaSource.SCHEMA_SQL, mock_logger)
+    schema_defs = parse_schema_sql(schema_sql, mock_logger)
+    df2, meta = apply_schema_columns(df, schema_defs, mock_logger)
 
     assert df2.columns == ["id", "name", "value"]
     assert isinstance(df2.schema["id"].dataType, IntegerType)
@@ -141,8 +174,10 @@ def test_apply_schema_columns_raises_on_missing_columns():
     schema_sql = "id INT, name STRING, value DOUBLE"
     mock_logger = MagicMock()
 
+    schema_defs = parse_schema_sql(schema_sql, mock_logger)
+
     with pytest.raises(ValueError, match=r"missing columns: \['value'\]"):
-        apply_schema_columns(df, schema_sql, SchemaSource.SCHEMA_SQL, mock_logger)
+        apply_schema_columns(df, schema_defs, mock_logger)
 
 
 def test_apply_schema_columns_drops_extra_columns():
@@ -152,12 +187,78 @@ def test_apply_schema_columns_drops_extra_columns():
     schema_sql = "id INT, name STRING"
     mock_logger = MagicMock()
 
-    df2, meta = apply_schema_columns(df, schema_sql, SchemaSource.SCHEMA_SQL, mock_logger)
+    schema_defs = parse_schema_sql(schema_sql, mock_logger)
+    df2, meta = apply_schema_columns(df, schema_defs, mock_logger)
 
     assert df2.columns == ["id", "name"]
     assert "extra" not in df2.columns
     assert df2.collect() == [(1, "A")]
     assert meta["dropped_columns"] == ["extra"]
+
+
+def test_apply_schema_columns_returns_unchanged_when_no_schema_defs():
+    spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
+    df = spark.createDataFrame([(1,)], ["id"])
+    logger = MagicMock()
+
+    df2, meta = apply_schema_columns(df, None, logger)
+
+    assert df2.columns == ["id"]
+    assert df2.collect() == [(1,)]
+    assert meta["dropped_columns"] == []
+
+
+def test_apply_schema_columns_with_structured_schema_orders_and_drops_extra():
+    spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
+    df = spark.createDataFrame([(1, "A", 3.14)], ["id", "name", "value"])
+    logger = MagicMock()
+    mock_spark = MagicMock()
+
+    table = {
+        "name": "t1",
+        "schema": [
+            {"column": "name", "type": "STRING"},
+            {"column": "id", "type": "INT"},
+        ],
+    }
+
+    schema_defs, source = resolve_schema(mock_spark, table, logger)
+    assert source == SchemaSource.SCHEMA_STRUCTURED
+
+    df2, meta = apply_schema_columns(df, schema_defs, logger)
+
+    assert df2.columns == ["name", "id"]  # order comes from schema
+    assert df2.collect() == [("A", 1)]  # extra column dropped
+    assert meta["dropped_columns"] == ["value"]
+
+
+def test_apply_schema_columns_converts_json_string_to_array():
+    spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
+    logger = MagicMock()
+
+    # input column is a JSON string representation of an array
+    df = spark.createDataFrame([('["a","b"]',)], ["tags"])
+
+    schema_defs = parse_schema_sql("tags ARRAY<STRING>", logger)
+
+    df2, meta = apply_schema_columns(df, schema_defs, logger)
+
+    row = df2.collect()[0]
+    assert row["tags"] == ["a", "b"]
+    assert meta["dropped_columns"] == []
+
+
+def test_apply_schema_columns_converts_json_string_to_nested_array():
+    spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
+    logger = MagicMock()
+
+    df = spark.createDataFrame([("[[1,2],[3,4]]",)], ["matrix"])
+
+    schema_defs = parse_schema_sql("matrix ARRAY<ARRAY<INT>>", logger)
+
+    df2, _ = apply_schema_columns(df, schema_defs, logger)
+
+    assert df2.collect()[0]["matrix"] == [[1, 2], [3, 4]]
 
 
 # ----------------------------------------------------------------------
@@ -244,7 +345,8 @@ def test_resolve_schema_returns_structured_schema_precedence():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    schema, source = resolve_schema(mock_spark, table, mock_logger)
+    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
 
-    assert schema == [{"column": "id", "type": "INT"}]
     assert source == SchemaSource.SCHEMA_STRUCTURED
+    assert schema_defs[0][0] == "id"
+    assert isinstance(schema_defs[0][1], IntegerType)

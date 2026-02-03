@@ -74,8 +74,9 @@ def test_load_from_local_file(minimal_config, caplog):
 def test_load_from_invalid_json(caplog):
     """Rejects invalid inline JSON and logs a configuration validation error."""
     bad_json = "{ invalid json }"
-    with caplog.at_level(logging.ERROR), pytest.raises(
-        ValueError, match=r"Invalid configuration source"
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ValueError, match=r"Invalid configuration source"),
     ):
         ConfigLoader(bad_json)
 
@@ -84,8 +85,9 @@ def test_load_from_invalid_json(caplog):
 
 def test_load_from_s3_requires_minio_client(caplog):
     """Fails fast when loading an s3a:// config without a MinIO client."""
-    with caplog.at_level(logging.ERROR), pytest.raises(
-        ValueError, match=r"MinIO client must be provided.*s3a://"
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ValueError, match=r"MinIO client must be provided.*s3a://"),
     ):
         ConfigLoader("s3a://bucket/key.json", minio_client=None)
 
@@ -123,8 +125,11 @@ def test_load_from_s3_failure_s3error(caplog):
         response=None,
     )
 
-    with caplog.at_level(logging.ERROR), pytest.raises(
-        RuntimeError, match=r"Failed to read s3a://test-bucket/config\.json from MinIO"
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(
+            RuntimeError, match=r"Failed to read s3a://test-bucket/config\.json from MinIO"
+        ),
     ):
         ConfigLoader("s3a://test-bucket/config.json", minio_client=mock_minio)
 
@@ -329,6 +334,7 @@ def test_paths_present_missing_bronze_base_raises(minimal_config):
         match=r"Missing required path keys: \['bronze_base'\]",
     ):
         ConfigLoader(cfg)
+
 
 # ---------------------------------------------------------------------
 # Accessor tests

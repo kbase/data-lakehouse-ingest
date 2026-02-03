@@ -122,12 +122,15 @@ class SchemaSource(Enum):
     INFERRED = "inferred"
 
 
+NormalizedSchema = list[tuple[str, DataType]]
+
+
 def resolve_schema(
     spark: SparkSession,
     table: dict[str, object],
     logger: logging.Logger,
     minio_client: Minio | None = None,
-) -> tuple[object | None, SchemaSource]:
+) -> tuple[NormalizedSchema | None, SchemaSource]:
     """
     Resolve the schema definition for a given table.
 
@@ -181,22 +184,24 @@ def resolve_schema(
         raise NotImplementedError(msg)
         # TODO: Implement LinkML schema parsing once linkml_parser is ready
 
+    # Structured schema takes precedence and is normalized immediately
     if isinstance(schema, list) and schema:
         logger.info(f"Using structured schema for table {table.get('name')}")
-        return schema, SchemaSource.SCHEMA_STRUCTURED
+        return parse_schema_structured(schema, logger), SchemaSource.SCHEMA_STRUCTURED
 
+    # SQL-style schema is parsed into the same normalized representation
     if isinstance(schema_sql, str) and schema_sql.strip():
         logger.info(f"Using schema_sql for table {table.get('name')}")
-        return schema_sql, SchemaSource.SCHEMA_SQL
+        return parse_schema_sql(schema_sql, logger), SchemaSource.SCHEMA_SQL
 
+    # No explicit schema → downstream code relies on Spark inference
     logger.info(f"No schema provided for table {table.get('name')}; using inferred schema")
     return None, SchemaSource.INFERRED
 
 
 def apply_schema_columns(
     df: DataFrame,
-    schema_def: object | None,
-    schema_source: SchemaSource,
+    schema_defs: list[tuple[str, DataType]] | None,
     logger: logging.Logger,
 ) -> tuple[DataFrame, dict[str, list[str]]]:
     """
@@ -282,23 +287,7 @@ def apply_schema_columns(
                 - "dropped_columns": list of column names that were present
                 in the input data but not defined in schema_sql.
     """
-    # No schema provided → return as-is
-    if not schema_def or schema_source == SchemaSource.INFERRED:
-        logger.info("No schema provided; skipping schema alignment.")
-        return df, {"dropped_columns": []}
-
-    # Parse SQL schema into structured representation
-    if schema_source == SchemaSource.SCHEMA_SQL:
-        if not isinstance(schema_def, str):
-            raise ValueError("Expected schema_def to be a string for SCHEMA_SQL.")
-        schema_defs = parse_schema_sql(schema_def, logger)
-
-    elif schema_source == SchemaSource.SCHEMA_STRUCTURED:
-        if not isinstance(schema_def, list):
-            raise ValueError("Expected schema_def to be a list for SCHEMA_STRUCTURED.")
-        schema_defs = parse_schema_structured(schema_def, logger)
-
-    else:
+    if not schema_defs:
         logger.info("No schema provided; skipping schema alignment.")
         return df, {"dropped_columns": []}
 
@@ -323,20 +312,16 @@ def apply_schema_columns(
 
     # Enforce ordering + type casting
     projected_cols = []
-
     for col_name, col_type in schema_defs:
         if isinstance(col_type, ArrayType):
-            # Correct way to turn JSON string -> Spark ARRAY
             projected_cols.append(from_json(col(col_name), col_type).alias(col_name))
         else:
-            # Normal scalar cast
             projected_cols.append(col(col_name).cast(col_type).alias(col_name))
 
     # Name-based projection (safe): keeps only schema columns, in schema order
     df = df.select(*projected_cols)
 
     logger.info(f"Applied name-based schema alignment with columns: {target_cols}")
-
     return df, {"dropped_columns": extra_cols}
 
 
@@ -406,10 +391,36 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         ValueError: Invalid column definition in schema_sql: 'invalid'
     """
 
+    def _split_schema_sql_defs(schema_sql: str) -> list[str]:
+        parts = []
+        buf = []
+        depth_paren = 0
+        depth_angle = 0
+
+        for ch in schema_sql:
+            if ch == "(":
+                depth_paren += 1
+            elif ch == ")":
+                depth_paren = max(0, depth_paren - 1)
+            elif ch == "<":
+                depth_angle += 1
+            elif ch == ">":
+                depth_angle = max(0, depth_angle - 1)
+
+            if ch == "," and depth_paren == 0 and depth_angle == 0:
+                parts.append("".join(buf).strip())
+                buf = []
+            else:
+                buf.append(ch)
+
+        parts.append("".join(buf).strip())
+
+        return parts
+
     logger.info(f"Parsing SQL schema definition: {schema_sql}")
 
     columns: list[tuple[str, DataType]] = []
-    for raw_def in schema_sql.split(","):
+    for raw_def in _split_schema_sql_defs(schema_sql):
         col_def = raw_def.strip()
         if not col_def:
             # Empty segment (e.g., trailing comma) → fail fast
@@ -437,6 +448,9 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")
     return columns
+
+
+
 
 
 def parse_schema_structured(

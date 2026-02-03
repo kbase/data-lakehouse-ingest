@@ -134,7 +134,7 @@ def process_table(
     fmt = detect_format(bronze_path, table.get("format"))
 
     # --- Resolve schema (LinkML takes precedence) ---
-    schema_def, schema_source = resolve_schema(
+    schema_defs, schema_source = resolve_schema(
         spark=spark, table=table, logger=logger, minio_client=minio_client
     )
 
@@ -170,8 +170,7 @@ def process_table(
     # --- Apply schema (rename; optionally drop extras if requested) ---
     df, schema_meta = apply_schema_columns(
         df=df,
-        schema_def=schema_def,
-        schema_source=schema_source,
+        schema_defs=schema_defs,
         logger=logger,
     )
 
@@ -195,12 +194,13 @@ def process_table(
     comments_report = None
 
     # Apply column comments only when schema is list-of-maps (structured schema)
-    if schema_source == SchemaSource.SCHEMA_STRUCTURED and isinstance(schema_def, list):
+    raw_structured_schema = table.get("schema")
+    if schema_source == SchemaSource.SCHEMA_STRUCTURED and isinstance(raw_structured_schema, list):
         full_table_name = f"{namespace}.{name}"
         comments_report = apply_comments_from_table_schema(
             spark=spark,
             full_table_name=full_table_name,
-            table_schema=schema_def,  # list-of-maps
+            table_schema=raw_structured_schema,  # list-of-maps from config
             logger=logger,
             require_existing_table=True,
         )

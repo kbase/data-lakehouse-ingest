@@ -129,12 +129,18 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "namespace": "tenant_alpha__dataset",
         "namespace_base_path": "s3a://silver/",
     }
+
+    table_with_schema = {
+        **table_config,
+        "schema": [{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
+    }
+
     result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=mock_loader,
         ctx=ctx,
-        table=table_config,
+        table=table_with_schema,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 

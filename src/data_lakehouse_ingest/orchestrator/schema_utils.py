@@ -157,13 +157,12 @@ def resolve_schema(
             JSON Schemas, or other schema formats stored in MinIO.
 
     Returns:
-        tuple[str | None, SchemaSource]:
-            - schema_def (object | None):
-                * list[dict] when SchemaSource.SCHEMA_STRUCTURED
-                * str when SchemaSource.SCHEMA_SQL
-                * None when SchemaSource.INFERRED
-            - schema_source (SchemaSource):
-                Enum indicating where the schema came from.
+        tuple[NormalizedSchema | None, SchemaSource]:
+        - schema_defs:
+            Normalized schema as a list of (column_name, DataType) tuples when
+            SchemaSource is SCHEMA_STRUCTURED or SCHEMA_SQL; otherwise None.
+        - schema_source (SchemaSource):
+            Enum indicating where the schema came from.
 
     Notes:
         - LinkML parsing is not implemented yet. When a LinkML path is present,
@@ -265,11 +264,8 @@ def apply_schema_columns(
     Args:
         df (pyspark.sql.DataFrame):
             The input DataFrame loaded from raw/bronze data.
-        schema_def (object | None):
-            Schema definition:
-              - str when schema_source is SCHEMA_SQL
-              - list when schema_source is SCHEMA_STRUCTURED
-              - None when schema_source is INFERRED
+        schema_defs (list[tuple[str, DataType]] | None):
+            Normalized schema definition.
         schema_source (SchemaSource):
             Indicates how the schema_def should be interpreted.
         logger (logging.Logger):
@@ -392,6 +388,18 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
     """
 
     def _split_schema_sql_defs(schema_sql: str) -> list[str]:
+        """
+        Split a SQL-style schema string into column definitions.
+
+        Commas are treated as separators **only at top level**; commas inside
+        DECIMAL(p,s) or ARRAY<T> (including nested arrays) are ignored.
+
+        Args:
+            schema_sql (str): SQL-style schema definition string.
+
+        Returns:
+            list[str]: Ordered list of column definition segments.
+        """
         parts = []
         buf = []
         depth_paren = 0
@@ -448,9 +456,6 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
 
     logger.info(f"Successfully parsed {len(columns)} columns from schema_sql.")
     return columns
-
-
-
 
 
 def parse_schema_structured(

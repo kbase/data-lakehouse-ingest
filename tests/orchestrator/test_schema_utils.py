@@ -180,7 +180,6 @@ def test_apply_schema_columns_raises_on_missing_columns():
         apply_schema_columns(df, schema_defs, mock_logger)
 
 
-
 def test_apply_schema_columns_drops_extra_columns():
     spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
     df = spark.createDataFrame([(1, "A", 99)], ["id", "name", "extra"])
@@ -188,7 +187,7 @@ def test_apply_schema_columns_drops_extra_columns():
     schema_sql = "id INT, name STRING"
     mock_logger = MagicMock()
 
-    schema_defs = parse_schema_sql(schema_sql, mention_logger := mock_logger)
+    schema_defs = parse_schema_sql(schema_sql, mock_logger)
     df2, meta = apply_schema_columns(df, schema_defs, mock_logger)
 
     assert df2.columns == ["id", "name"]
@@ -228,8 +227,8 @@ def test_apply_schema_columns_with_structured_schema_orders_and_drops_extra():
 
     df2, meta = apply_schema_columns(df, schema_defs, logger)
 
-    assert df2.columns == ["name", "id"]      # order comes from schema
-    assert df2.collect() == [("A", 1)]        # extra column dropped
+    assert df2.columns == ["name", "id"]  # order comes from schema
+    assert df2.collect() == [("A", 1)]  # extra column dropped
     assert meta["dropped_columns"] == ["value"]
 
 
@@ -351,4 +350,3 @@ def test_resolve_schema_returns_structured_schema_precedence():
     assert source == SchemaSource.SCHEMA_STRUCTURED
     assert schema_defs[0][0] == "id"
     assert isinstance(schema_defs[0][1], IntegerType)
-

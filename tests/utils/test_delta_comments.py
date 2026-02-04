@@ -43,10 +43,12 @@ class FakeSpark:
 
 
 def test_escape_sql_string_doubles_single_quotes():
+    """Escapes single quotes by doubling them for safe SQL string literals."""
     assert _escape_sql_string("Bob's column") == "Bob''s column"
 
 
 def test_get_table_coltypes_parses_describe_output_and_skips_headers():
+    """Extracts column types from DESCRIBE output while ignoring metadata rows."""
     rows = [
         FakeRow(col_name="gene_id", data_type="string"),
         FakeRow(col_name="# Partitioning", data_type=""),
@@ -62,6 +64,7 @@ def test_get_table_coltypes_parses_describe_output_and_skips_headers():
 
 
 def test_try_alter_column_comment_uses_modern_syntax_if_supported():
+    """Applies column comments using ALTER COLUMN syntax when supported."""
     spark = FakeSpark()
     logger = logging.getLogger("test")
 
@@ -75,6 +78,7 @@ def test_try_alter_column_comment_uses_modern_syntax_if_supported():
 
 
 def test_try_alter_column_comment_falls_back_to_change_column_when_alter_fails():
+    """Falls back to CHANGE COLUMN syntax when ALTER COLUMN is unsupported."""
     rows = [
         FakeRow(col_name="gene_id", data_type="string"),
         FakeRow(col_name="gene_cluster_id", data_type="string"),
@@ -96,6 +100,7 @@ def test_try_alter_column_comment_falls_back_to_change_column_when_alter_fails()
 
 
 def test_try_alter_column_comment_fallback_warns_and_returns_false_if_column_missing(caplog):
+    """Logs a warning and returns False when the target column does not exist."""
     rows = [FakeRow(col_name="other_col", data_type="string")]
     spark = FakeSpark(
         describe_rows=rows,
@@ -111,6 +116,7 @@ def test_try_alter_column_comment_fallback_warns_and_returns_false_if_column_mis
 
 
 def test_apply_comments_returns_failed_if_table_missing_when_required():
+    """Returns a failed status when the target table does not exist."""
     spark = FakeSpark(table_exists=False)
     report = apply_comments_from_table_schema(
         spark,
@@ -124,6 +130,7 @@ def test_apply_comments_returns_failed_if_table_missing_when_required():
 
 
 def test_apply_comments_skips_missing_or_empty_comments_and_applies_valid_ones():
+    """Applies only valid comments and skips missing or empty definitions."""
     spark = FakeSpark()
     schema = [
         {"column": "gene_id", "comment": "Gene id"},

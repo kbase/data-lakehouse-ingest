@@ -64,11 +64,8 @@ def _try_alter_column_comment(
     try:
         spark.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{col}` COMMENT '{c_sql}'")
         return True
-    except Exception as e:
-        logger.error(
-            f"Failed to set comment for {full_table_name}.{col}: {e}",
-            exc_info=True,
-        )
+    except Exception:
+        logger.exception(f"Failed to set comment for {full_table_name}.{col}")
         return False
 
 

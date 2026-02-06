@@ -3,9 +3,8 @@ Delta table column comment utilities.
 
 Provides helpers to apply column-level comments to existing Spark/Delta
 tables using a structured list-of-maps schema definition. The module
-handles Spark SQL syntax differences across versions, safely escapes
-comment strings, and falls back between supported ALTER TABLE forms.
-It skips missing or empty comments gracefully and returns a structured
+uses Spark SQL to update column metadata, safely escapes comment strings,
+skips missing or empty comments gracefully, and returns a structured
 report suitable for logging, auditing, and ingestion metadata.
 """
 

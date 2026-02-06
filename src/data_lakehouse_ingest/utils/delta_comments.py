@@ -36,48 +36,6 @@ def _escape_sql_string(s: str) -> str:
     return s.replace("'", "''")
 
 
-def _get_table_coltypes(spark: SparkSession, full_table_name: str) -> dict[str, str]:
-    """
-    Retrieve column data types for an existing Spark table.
-
-    Uses Spark's catalog API (`spark.catalog.listColumns`) to extract
-    column names and their Spark SQL type strings (e.g. "string",
-    "double", "decimal(10,4)").
-
-    It is primarily used to support legacy `CHANGE COLUMN` syntax,
-    which requires explicitly specifying the column's data type when
-    modifying column metadata such as comments.
-
-    This information is used when generating Spark SQL statements
-    that require the column's existing data type.
-
-    Args:
-        spark: Active SparkSession.
-        full_table_name: Fully qualified table name
-            (e.g. `schema.table`).
-
-    Returns:
-        A dictionary mapping column names to Spark SQL type strings.
-
-    Example return value:
-        {
-            "gene_id": "string",
-            "gene_cluster_id": "string",
-            "score": "double"
-        }
-    """
-    cols = spark.catalog.listColumns(full_table_name)
-
-    coltypes: dict[str, str] = {}
-    for c in cols:
-        # Skip partition columns if present (defensive)
-        if getattr(c, "isPartition", False):
-            continue
-        coltypes[c.name] = c.dataType
-
-    return coltypes
-
-
 def _try_alter_column_comment(
     spark: SparkSession,
     full_table_name: str,

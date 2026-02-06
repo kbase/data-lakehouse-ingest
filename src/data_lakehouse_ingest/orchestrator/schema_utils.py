@@ -105,16 +105,44 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
 
 class SchemaSource(Enum):
     """
-    Origin of the resolved schema for a table.
+    Origin of the resolved schema for a table and how it is used downstream.
+
+    The SchemaSource returned by `resolve_schema()` is used by the ingestion
+    orchestrator to determine how strictly a table is governed and which
+    schema-related behaviors are applied.
+
+    Downstream usage:
+        - Schema enforcement:
+            When the resolved schema source is SCHEMA_SQL or SCHEMA_STRUCTURED,
+            the normalized schema returned by `resolve_schema()` is passed to
+            `apply_schema_columns()` to enforce required columns, drop extra
+            columns, cast types, and reorder columns. When the source is
+            INFERRED, schema alignment is skipped and Spark’s inferred schema
+            is used as-is.
+
+        - Metadata application:
+            Column-level metadata (e.g., comments) is applied only when the
+            schema source is SCHEMA_STRUCTURED, because comments and other
+            rich metadata are represented exclusively in the structured
+            list-of-maps schema format.
+
+        - Reporting and auditing:
+            The schema source is included in per-table ingestion reports so
+            that each run explicitly records whether the table was governed
+            via structured schema, SQL-style schema, or inference.
 
     Values:
         SCHEMA_SQL:
-            Schema provided via `schema_sql` (SQL-style "col TYPE, col TYPE, ...").
+            Schema provided via `schema_sql` (SQL-style
+            "col TYPE, col TYPE, ...").
+
         SCHEMA_STRUCTURED:
             Schema provided via `schema` as a structured list-of-maps
             (e.g., [{"column": "id", "type": "INT"}, ...]).
+
         INFERRED:
-            No explicit schema provided; Spark infers schema from the source files.
+            No explicit schema provided; Spark infers the schema from
+            the source files.
     """
 
     SCHEMA_SQL = "schema_sql"
@@ -132,43 +160,62 @@ def resolve_schema(
     minio_client: Minio | None = None,
 ) -> tuple[NormalizedSchema | None, SchemaSource]:
     """
-    Resolve the schema definition for a given table.
+    Resolve the schema for a table and return both a normalized schema and its origin.
 
-    Current behavior (LinkML not yet supported):
-        - If a LinkML schema path is provided, the function logs an error and
-          raises NotImplementedError. There is **no** automatic fallback to
-          structured or SQL schemas when LinkML is present.
-        - If `schema` is provided as a non-empty list, it is returned and marked
-          as SchemaSource.SCHEMA_STRUCTURED.
-        - If `schema_sql` is provided, it is returned and marked as
-          SchemaSource.SCHEMA_SQL.
-        - If neither is provided, the schema is treated as inferred and marked
-          as SchemaSource.INFERRED.
+    This function normalizes either supported schema representation into a common
+    `NormalizedSchema` form (list of (column_name, Spark DataType) tuples), and returns a
+    `SchemaSource` enum that downstream orchestration uses to decide how to handle the
+    table (e.g., whether to apply schema alignment and whether column comments are
+    eligible to be applied from structured schema metadata).
+
+    Precedence and behavior (LinkML not yet supported):
+        1) LinkML:
+           - If `linkml_schema` is provided, the function logs an error and raises
+             NotImplementedError. There is no fallback when LinkML is present.
+
+        2) Structured schema (`schema`):
+           - If `schema` is provided as a **non-empty** list-of-maps, it takes precedence.
+           - The list-of-maps is parsed via `parse_schema_structured()` and returned as
+             normalized `(name, DataType)` tuples with `SchemaSource.SCHEMA_STRUCTURED`.
+
+        3) SQL-style schema (`schema_sql`):
+           - If `schema` is absent/empty and `schema_sql` is a non-empty string, it is
+             parsed via `parse_schema_sql()` and returned as normalized tuples with
+             `SchemaSource.SCHEMA_SQL`.
+
+        4) Inferred:
+           - If neither a non-empty structured schema nor a non-empty `schema_sql` is
+             provided, this function returns `(None, SchemaSource.INFERRED)`. Downstream
+             code may rely on Spark’s inferred schema for loading and column order.
+
+    Validation note:
+        - In the ingest pipeline, config is validated by `ConfigLoader` before this
+          function runs (e.g., `schema` must be a list when provided, `schema_sql` must be
+          a string when provided). This function assumes that validation has already
+          occurred and focuses on precedence + normalization.
 
     Args:
-        spark (SparkSession): Active Spark session (unused until LinkML is implemented).
-        table (dict): Full table definition from the ingestion config.
-            This dict may include many fields (e.g., name, bronze_path, enabled,
-            schema, schema_sql, linkml_schema, partition_by, drop_extra_columns, etc.).
-            Only the schema-related fields are used in this function.
-        logger (logging.Logger): Logger for reporting resolution decisions.
-        minio_client (Minio | None): Placeholder for future MinIO-based schema retrieval.
-            In the future, callers may want to supply MinIO paths to SQL DDL files,
-            JSON Schemas, or other schema formats stored in MinIO.
+        spark (SparkSession):
+            Active Spark session (currently unused until LinkML parsing is implemented).
+        table (dict[str, object]):
+            Table definition from the ingestion config. Only schema-related keys are used
+            here: `schema`, `schema_sql`, and `linkml_schema`.
+        logger (logging.Logger):
+            Logger for reporting schema resolution decisions.
+        minio_client (Minio | None):
+            Placeholder for future MinIO-based schema retrieval (not currently used).
 
     Returns:
         tuple[NormalizedSchema | None, SchemaSource]:
-        - schema_defs:
-            Normalized schema as a list of (column_name, DataType) tuples when
-            SchemaSource is SCHEMA_STRUCTURED or SCHEMA_SQL; otherwise None.
-        - schema_source (SchemaSource):
-            Enum indicating where the schema came from.
+            - schema_defs:
+                Normalized schema (list of (column_name, DataType) tuples) when the
+                source is SCHEMA_STRUCTURED or SCHEMA_SQL; otherwise None.
+            - schema_source:
+                Enum indicating schema origin: SCHEMA_STRUCTURED, SCHEMA_SQL, or INFERRED.
 
-    Notes:
-        - LinkML parsing is not implemented yet. When a LinkML path is present,
-          the function logs an error and raises NotImplementedError. Once
-          LinkML support is added, this behavior may change to parse the
-          LinkML schema and return a corresponding SQL-style definition.
+    Raises:
+        NotImplementedError:
+            If `linkml_schema` is provided (LinkML parsing not implemented yet).
     """
     schema_sql = table.get("schema_sql")
     schema = table.get("schema")
@@ -204,68 +251,73 @@ def apply_schema_columns(
     logger: logging.Logger,
 ) -> tuple[DataFrame, dict[str, list[str]]]:
     """
-    Align DataFrame columns using a provided SQL-style schema definition.
+    Align DataFrame columns using a normalized schema definition.
 
-    This function treats `schema_sql` as the authoritative definition of the
-    DataFrame's final structure. It enforces both column *order* and column
-    *data types*, ensuring that curated Delta tables follow a consistent,
-    governed schema. The function performs four key operations:
+    This function treats `schema_defs`—a normalized list of
+    (column_name, Spark DataType) tuples—as the authoritative definition
+    of the DataFrame's final structure. It enforces both column *order*
+    and column *data types*, ensuring curated Delta tables follow a
+    consistent, governed schema.
+
+    The normalized schema is produced upstream by `resolve_schema()`
+    (via `parse_schema_sql()` or `parse_schema_structured()`), so this
+    function is intentionally agnostic to the original configuration
+    representation (SQL-style schema string vs structured list-of-maps).
+
+    The function performs the following operations when a schema is provided:
 
       1. **Validation**
-         - Ensures every column declared in schema_sql exists in the input DataFrame.
-         - Raises ValueError on any missing required column (fail-fast behavior).
+         - Ensures every column declared in `schema_defs` exists in the
+           input DataFrame.
+         - Raises ValueError if any required column is missing
+           (fail-fast behavior).
 
       2. **Column pruning**
-         - Drops extra columns that appear in the input data but not in schema_sql.
+         - Drops extra columns present in the input data but not declared
+           in the schema.
 
       3. **Type enforcement (casting)**
-         - Each column is cast to its declared Spark DataType.
-         - Supports full PySpark types:
-            STRING, INTEGER, BIGINT, DOUBLE, FLOAT, BOOLEAN,
-            DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>
-         - For ARRAY<T> types, the function uses:
-                from_json(col(col_name), ArrayType(innerType))
-            to convert JSON-encoded arrays to Spark arrays.
+         - Casts each column to its declared Spark DataType.
+         - Supports primitive and complex types, including:
+           STRING, INT/INTEGER, BIGINT/LONG, DOUBLE, FLOAT, BOOLEAN,
+           DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>.
 
-      4. **Array Conversion**
-         - For ARRAY<T> columns, the function converts *JSON-encoded string*
-           values into proper Spark arrays using:
-               from_json(col(col_name), ArrayType(innerType))
-         - Supports nested array element types (e.g., ARRAY<ARRAY<INT>>)
-           as produced by `parse_schema_sql()`.
-         - Note: The function expects the input column for ARRAY<T> to contain
-           JSON strings. Non-JSON formats (e.g., PostgreSQL-style "{1,2}") are
-           not automatically converted.
+      4. **Array conversion**
+         - For ARRAY<T> columns, converts JSON-encoded string values into
+           proper Spark arrays using `from_json`.
+         - Supports nested array types (e.g., ARRAY<ARRAY<INT>>).
+         - Note: Input values for ARRAY<T> are expected to be JSON strings;
+           other encodings are not automatically converted.
 
       5. **Ordered projection**
-         - The output DataFrame contains only the schema_sql columns,
-           in the exact order they were declared.
+         - Projects only schema-defined columns, in the exact order
+           specified by `schema_defs`.
 
     Behavior overview:
-        • When the schema is inferred:
+        • When `schema_defs` is None or empty:
             - No schema alignment is performed.
             - The DataFrame is returned unchanged.
             - This corresponds to the inferred schema path, where the ingestion
               pipeline relies on Spark's natural column order.
 
-        • When an explicit schema is provided:
+        • When `schema_defs` is provided:
             - Validates required columns.
             - Drops extra columns.
             - Casts columns to their declared types.
             - Reorders columns to match the declared schema.
 
     This design ensures that:
-        - Users can specify schema_sql columns in any order, independent of the raw
-        data file's header order.
-        - Column mismatches are detected reliably.
-        - No silent column swaps or implicit type changes occur.
-        - Schema inference happens only when schema_sql is not defined.
+        - Schema enforcement is deterministic and explicit.
+        - Column mismatches are detected early.
+        - No silent column reordering or implicit type changes occur.
+        - Schema inference is used only when no explicit schema is supplied.
 
     Args:
         df (pyspark.sql.DataFrame):
             The input DataFrame loaded from raw/bronze data.
         schema_defs (list[tuple[str, DataType]] | None):
-            Normalized schema definition.
+            Normalized schema definition produced by schema resolution.
+            If None or empty, schema alignment is skipped.
         logger (logging.Logger):
             Logger used to report alignment decisions and mismatch warnings.
 
@@ -273,13 +325,12 @@ def apply_schema_columns(
          tuple[pyspark.sql.DataFrame, dict[str, list[str]]]:
             A tuple containing:
             - DataFrame:
-                If schema_sql is provided, a DataFrame ordered according to
-                schema_sql and containing only those columns.
-                If schema_sql is None, the original DataFrame, unchanged.
+                Aligned DataFrame when a schema is provided, otherwise
+                the original DataFrame.
             - dict:
-                Metadata about schema application, currently including:
+                Metadata including:
                 - "dropped_columns": list of column names that were present
-                in the input data but not defined in schema_sql.
+                  in the input data but not declared in the schema.
     """
     if not schema_defs:
         logger.info("No schema provided; skipping schema alignment.")

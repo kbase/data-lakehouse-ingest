@@ -62,10 +62,7 @@ def _try_alter_column_comment(
     c_sql = _escape_sql_string(comment)
 
     try:
-        spark.sql(
-            f"ALTER TABLE {full_table_name} "
-            f"ALTER COLUMN `{col}` COMMENT '{c_sql}'"
-        )
+        spark.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{col}` COMMENT '{c_sql}'")
         return True
     except Exception as e:
         logger.error(

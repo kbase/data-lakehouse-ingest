@@ -9,8 +9,6 @@ It skips missing or empty comments gracefully and returns a structured
 report suitable for logging, auditing, and ingestion metadata.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -42,20 +40,21 @@ def _get_table_coltypes(spark: SparkSession, full_table_name: str) -> dict[str, 
     """
     Retrieve column data types for an existing Spark table.
 
-    This function queries the table metadata using `DESCRIBE <table>`
-    and extracts column names along with their Spark SQL type strings.
+    Uses Spark's catalog API (`spark.catalog.listColumns`) to extract
+    column names and their Spark SQL type strings (e.g. "string",
+    "double", "decimal(10,4)").
 
     It is primarily used to support legacy `CHANGE COLUMN` syntax,
     which requires explicitly specifying the column's data type when
     modifying column metadata such as comments.
 
-    Non-column rows produced by DESCRIBE (e.g. section headers like
-    '# Partitioning' or '# Detailed Table Information') are ignored.
+    This information is used when generating Spark SQL statements
+    that require the column's existing data type.
 
     Args:
         spark: Active SparkSession.
         full_table_name: Fully qualified table name
-            (e.g. `catalog.schema.table` or `schema.table`).
+            (e.g. `schema.table`).
 
     Returns:
         A dictionary mapping column names to Spark SQL type strings.
@@ -67,26 +66,14 @@ def _get_table_coltypes(spark: SparkSession, full_table_name: str) -> dict[str, 
             "score": "double"
         }
     """
-    rows = spark.sql(f"DESCRIBE {full_table_name}").collect()
+    cols = spark.catalog.listColumns(full_table_name)
+
     coltypes: dict[str, str] = {}
-
-    for r in rows:
-        col = (r["col_name"] or "").strip()
-        dtype = (r["data_type"] or "").strip()
-
-        # DESCRIBE output contains section headers like '# Partitioning', '# Detailed Table Information'
-        if not col or col.startswith("#"):
+    for c in cols:
+        # Skip partition columns if present (defensive)
+        if getattr(c, "isPartition", False):
             continue
-        if col.lower() == "partition":
-            continue
-        if col.startswith("`") and col.endswith("`"):
-            col = col[1:-1]
-
-        # Stop when hitting details section (some Spark builds show empty col_name then details)
-        if col.lower().startswith("detailed table information"):
-            break
-
-        coltypes[col] = dtype
+        coltypes[c.name] = c.dataType
 
     return coltypes
 
@@ -101,17 +88,8 @@ def _try_alter_column_comment(
     """
     Attempt to set a column comment using supported Spark SQL syntaxes.
 
-    This function first attempts the modern syntax:
-
-        ALTER TABLE <table> ALTER COLUMN <col> COMMENT '<comment>'
-
-    If that fails (due to Spark version or distribution limitations),
-    it falls back to the more widely supported syntax:
-
-        ALTER TABLE <table>
-        CHANGE COLUMN <col> <col> <type> COMMENT '<comment>'
-
-    The fallback requires fetching the column's existing data type.
+    Uses the `ALTER TABLE ... ALTER COLUMN ... COMMENT` syntax to update
+    column-level metadata for an existing Spark/Delta table.
 
     Args:
         spark: Active SparkSession.
@@ -121,33 +99,15 @@ def _try_alter_column_comment(
         logger: Logger used for debug, warning, and error messages.
 
     Returns:
-        True if the comment was successfully applied using any method,
+        True if the comment was successfully applied,
         False otherwise.
     """
     c_sql = _escape_sql_string(comment)
 
-    # 1) Try: ALTER TABLE t ALTER COLUMN col COMMENT '...'
-    # Some environments support this (esp newer Spark).
     try:
-        spark.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{col}` COMMENT '{c_sql}'")
-        return True
-    except Exception as e:
-        logger.debug(
-            f"ALTER COLUMN COMMENT not supported or failed for {full_table_name}.{col}: {e}"
-        )
-
-    try:
-        coltypes = _get_table_coltypes(spark, full_table_name)
-        if col not in coltypes:
-            logger.warning(
-                f"Column '{col}' not found in table {full_table_name}; skipping comment."
-            )
-            return False
-
-        dtype = coltypes[col]
-
         spark.sql(
-            f"ALTER TABLE {full_table_name} CHANGE COLUMN `{col}` `{col}` {dtype} COMMENT '{c_sql}'"
+            f"ALTER TABLE {full_table_name} "
+            f"ALTER COLUMN `{col}` COMMENT '{c_sql}'"
         )
         return True
     except Exception as e:

@@ -266,8 +266,6 @@ def apply_schema_columns(
             The input DataFrame loaded from raw/bronze data.
         schema_defs (list[tuple[str, DataType]] | None):
             Normalized schema definition.
-        schema_source (SchemaSource):
-            Indicates how the schema_def should be interpreted.
         logger (logging.Logger):
             Logger used to report alignment decisions and mismatch warnings.
 

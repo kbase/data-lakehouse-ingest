@@ -2,7 +2,6 @@ import logging
 
 from data_lakehouse_ingest.utils.delta_comments import (
     _escape_sql_string,
-    _get_table_coltypes,
     _try_alter_column_comment,
     apply_comments_from_table_schema,
 )
@@ -47,77 +46,35 @@ def test_escape_sql_string_doubles_single_quotes():
     assert _escape_sql_string("Bob's column") == "Bob''s column"
 
 
-def test_get_table_coltypes_parses_describe_output_and_skips_headers():
-    """Extracts column types from DESCRIBE output while ignoring metadata rows."""
-    rows = [
-        FakeRow(col_name="gene_id", data_type="string"),
-        FakeRow(col_name="# Partitioning", data_type=""),
-        FakeRow(col_name="gene_cluster_id", data_type="string"),
-        FakeRow(col_name="partition", data_type="string"),
-        FakeRow(col_name="`weird`", data_type="int"),
-        FakeRow(col_name="Detailed Table Information", data_type=""),
-        FakeRow(col_name="after_details", data_type="string"),
-    ]
-    spark = FakeSpark(describe_rows=rows)
-    ct = _get_table_coltypes(spark, "db.tbl")
-    assert ct == {"gene_id": "string", "gene_cluster_id": "string", "weird": "int"}
-
-
-def test_try_alter_column_comment_uses_modern_syntax_if_supported():
-    """Applies column comments using ALTER COLUMN syntax when supported."""
+def test_try_alter_column_comment_uses_alter_column_syntax_and_escapes_quotes():
+    """Applies column comments using ALTER COLUMN syntax and escapes quotes."""
     spark = FakeSpark()
     logger = logging.getLogger("test")
 
     ok = _try_alter_column_comment(spark, "db.tbl", "gene_id", "Bob's column", logger)
 
     assert ok is True
-    assert any(
-        "ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT 'Bob''s column'" in q
-        for q in spark.sql_calls
-    )
+    assert len(spark.sql_calls) == 1
+    assert "ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT 'Bob''s column'" in spark.sql_calls[0]
 
 
-def test_try_alter_column_comment_falls_back_to_change_column_when_alter_fails():
-    """Falls back to CHANGE COLUMN syntax when ALTER COLUMN is unsupported."""
-    rows = [
-        FakeRow(col_name="gene_id", data_type="string"),
-        FakeRow(col_name="gene_cluster_id", data_type="string"),
-    ]
-    spark = FakeSpark(
-        describe_rows=rows,
-        sql_side_effects=[Exception("ALTER COLUMN not supported")],
-    )
+def test_try_alter_column_comment_logs_error_and_returns_false_on_failure(caplog):
+    """Logs an error and returns False if Spark SQL execution fails."""
+    spark = FakeSpark(sql_side_effects=[Exception("boom")])
     logger = logging.getLogger("test")
 
-    ok = _try_alter_column_comment(spark, "db.tbl", "gene_id", "c", logger)
-
-    assert ok is True
-    assert any("DESCRIBE db.tbl" in q for q in spark.sql_calls)
-    assert any(
-        "ALTER TABLE db.tbl CHANGE COLUMN `gene_id` `gene_id` string COMMENT 'c'" in q
-        for q in spark.sql_calls
-    )
-
-
-def test_try_alter_column_comment_fallback_warns_and_returns_false_if_column_missing(caplog):
-    """Logs a warning and returns False when the target column does not exist."""
-    rows = [FakeRow(col_name="other_col", data_type="string")]
-    spark = FakeSpark(
-        describe_rows=rows,
-        sql_side_effects=[Exception("ALTER COLUMN not supported")],
-    )
-    logger = logging.getLogger("test")
-
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.ERROR):
         ok = _try_alter_column_comment(spark, "db.tbl", "gene_id", "c", logger)
 
     assert ok is False
-    assert "skipping comment" in caplog.text.lower()
+    assert len(spark.sql_calls) == 1
+    assert "Failed to set comment for db.tbl.gene_id" in caplog.text
 
 
 def test_apply_comments_returns_failed_if_table_missing_when_required():
     """Returns a failed status when the target table does not exist."""
     spark = FakeSpark(table_exists=False)
+
     report = apply_comments_from_table_schema(
         spark,
         "db.tbl",
@@ -125,6 +82,7 @@ def test_apply_comments_returns_failed_if_table_missing_when_required():
         logger=logging.getLogger("test"),
         require_existing_table=True,
     )
+
     assert report["status"] == "failed"
     assert "Table does not exist" in report["error"]
 
@@ -150,3 +108,23 @@ def test_apply_comments_skips_missing_or_empty_comments_and_applies_valid_ones()
     assert any(
         d.get("status") == "applied" and d.get("column") == "gene_id" for d in report["details"]
     )
+    assert any(
+        "ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT 'Gene id'" in q for q in spark.sql_calls
+    )
+
+
+def test_apply_comments_marks_failed_when_alter_comment_fails_for_a_column():
+    """Counts a failed comment application when ALTER COLUMN raises."""
+    spark = FakeSpark(sql_side_effects=[Exception("nope")])
+    schema = [{"column": "gene_id", "comment": "x"}]
+
+    report = apply_comments_from_table_schema(
+        spark, "db.tbl", schema, logger=logging.getLogger("test")
+    )
+
+    assert report["status"] == "failed"
+    assert report["applied"] == 0
+    assert report["skipped"] == 0
+    assert report["failed"] == 1
+    assert report["details"][0]["status"] == "failed"
+    assert report["details"][0]["column"] == "gene_id"

@@ -421,6 +421,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
             • If any column definition is malformed.
             • If a data type is unsupported.
             • If DECIMAL(p,s) or ARRAY<T> syntax is invalid.
+            • If schema_sql contains unmatched or unclosed delimiters in types (e.g., DECIMAL(...), ARRAY<...>).
 
     Examples:
         >>> parse_schema_sql("id INT, name STRING")
@@ -449,29 +450,43 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         Returns:
             list[str]: Ordered list of column definition segments.
         """
-        parts = []
-        buf = []
+        parts: list[str] = []
         depth_paren = 0
         depth_angle = 0
 
-        for ch in schema_sql:
+        start = 0  # start index of the current segment
+
+        for i, ch in enumerate(schema_sql):
             if ch == "(":
                 depth_paren += 1
             elif ch == ")":
-                depth_paren = max(0, depth_paren - 1)
+                depth_paren -= 1
+                if depth_paren < 0:
+                    logger.error(f"Unmatched ')' at position {i} in schema_sql: {schema_sql!r}")
+                    raise ValueError(f"Invalid schema_sql: unmatched ')' at position {i}.")
             elif ch == "<":
                 depth_angle += 1
             elif ch == ">":
-                depth_angle = max(0, depth_angle - 1)
+                depth_angle -= 1
+                if depth_angle < 0:
+                    logger.error(f"Unmatched '>' at position {i} in schema_sql: {schema_sql!r}")
+                    raise ValueError(f"Invalid schema_sql: unmatched '>' at position {i}.")
 
+            # split only on commas at top level
             if ch == "," and depth_paren == 0 and depth_angle == 0:
-                parts.append("".join(buf).strip())
-                buf = []
-            else:
-                buf.append(ch)
+                segment = schema_sql[start:i].strip()
+                parts.append(segment)
+                start = i + 1  # next segment starts after the comma
 
-        parts.append("".join(buf).strip())
+        if depth_paren != 0:
+            logger.error(f"Unclosed '(' in schema_sql: {schema_sql!r}")
+            raise ValueError("Invalid schema_sql: unclosed '(' in type definition.")
+        if depth_angle != 0:
+            logger.error(f"Unclosed '<' in schema_sql: {schema_sql!r}")
+            raise ValueError("Invalid schema_sql: unclosed '<' in type definition.")
 
+        # last segment
+        parts.append(schema_sql[start:].strip())
         return parts
 
     logger.info(f"Parsing SQL schema definition: {schema_sql}")
@@ -516,17 +531,19 @@ def parse_schema_structured(
 
     Expected input format:
         [
-          {"column": "id", "type": "INT"},
-          {"name": "gene_id", "type": "STRING"},
+          {"column": "id", "type": "INT", "nullable": false, "comment": "Primary key"},
+          {"column": "gene_id", "type": "STRING"},
           ...
         ]
 
     Key rules:
       - Each entry must be a dict/map.
-      - Column name is taken from "column" or "name".
-      - Type must be present under "type".
+      - Only the following keys are allowed: "column", "type", "nullable", "comment".
+      - Column name must be provided under "column".
+      - Type must be provided under "type".
+      - "nullable" (bool) and "comment" (string) are optional when provided.
       - Types support the same set as SQL schemas via _to_pyspark_type(...):
-          primitives, DECIMAL(p,s), ARRAY<T> (including nested arrays)
+        primitives, DECIMAL(p,s), ARRAY<T> (including nested arrays)
 
     Args:
         schema: Structured schema list-of-maps.
@@ -539,27 +556,64 @@ def parse_schema_structured(
         ValueError:
             - If schema is not a list.
             - If any entry is not a dict.
-            - If required keys are missing ("column"/"name", "type").
+            - If required keys are missing ("column", "type").
+            - If unsupported keys are present (keys other than "column", "type", "nullable", "comment").
+            - If "nullable" is present and not a bool.
+            - If "comment" is present and not a string (or None).
             - If a type is invalid or unsupported.
     """
     if not isinstance(schema, list):
         raise ValueError(f"Structured schema must be a list, got {type(schema).__name__}.")
+
+    allowed_keys = {"column", "type", "nullable", "comment"}
 
     cols: list[tuple[str, DataType]] = []
     for i, coldef in enumerate(schema):
         if not isinstance(coldef, dict):
             raise ValueError(f"Invalid schema entry at index {i}: expected object/map")
 
-        col_name = coldef.get("column") or coldef.get("name")
+        # Reject unknown keys (strict contract)
+        extra_keys = set(coldef.keys()) - allowed_keys
+        if extra_keys:
+            raise ValueError(
+                f"Schema entry at index {i} has unsupported keys {sorted(extra_keys)}; "
+                f"allowed keys are {sorted(allowed_keys)}."
+            )
+
+        # Required: column
+        if "column" not in coldef:
+            raise ValueError(f"Schema entry at index {i} missing required key 'column'")
+
+        col_name = str(coldef["column"]).strip()
         if not col_name:
-            raise ValueError(f"Schema entry at index {i} missing 'column'/'name'")
+            raise ValueError(f"Schema entry at index {i} has empty 'column' value")
 
-        typ = coldef.get("type")
-        if not typ:
-            raise ValueError(f"Schema entry for '{col_name}' missing 'type'")
+        # Required: type
+        if "type" not in coldef:
+            raise ValueError(f"Schema entry for '{col_name}' missing required key 'type'")
 
-        dtype = _to_pyspark_type(str(typ), logger, context="structured schema")
-        cols.append((str(col_name), dtype))
+        typ_raw = str(coldef["type"]).strip()
+        if not typ_raw:
+            raise ValueError(f"Schema entry for '{col_name}' has empty 'type' value")
+
+        # Optional: nullable
+        if "nullable" in coldef and not isinstance(coldef["nullable"], bool):
+            raise ValueError(
+                f"Schema entry for '{col_name}' has invalid 'nullable' "
+                f"(expected bool, got {type(coldef['nullable']).__name__})"
+            )
+
+        # Optional: comment
+        if "comment" in coldef:
+            comment_val = coldef["comment"]
+            if comment_val is not None and not isinstance(comment_val, str):
+                raise ValueError(
+                    f"Schema entry for '{col_name}' has invalid 'comment' "
+                    f"(expected string, got {type(comment_val).__name__})"
+                )
+
+        dtype = _to_pyspark_type(typ_raw, logger, context="structured schema")
+        cols.append((col_name, dtype))
 
         logger.debug(f"Parsed column: name='{col_name}', type='{dtype.simpleString()}'")
 

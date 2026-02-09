@@ -286,13 +286,12 @@ def test_parse_schema_structured_parses_correctly_column_key():
     assert isinstance(parsed[2][1], DoubleType)
 
 
-def test_parse_schema_structured_accepts_name_alias():
+def test_parse_schema_structured_raises_on_name_key_not_allowed():
     logger = MagicMock()
     schema = [{"name": "id", "type": "INT"}]
 
-    parsed = parse_schema_structured(schema, logger)
-    assert parsed[0][0] == "id"
-    assert isinstance(parsed[0][1], IntegerType)
+    with pytest.raises(ValueError, match=r"unsupported keys.*name"):
+        parse_schema_structured(schema, logger)
 
 
 def test_parse_schema_structured_supports_array_types():
@@ -318,15 +317,15 @@ def test_parse_schema_structured_raises_if_entry_not_dict():
         parse_schema_structured(["id INT"], logger)
 
 
-def test_parse_schema_structured_raises_if_missing_column_and_name():
+def test_parse_schema_structured_raises_if_missing_column():
     logger = MagicMock()
-    with pytest.raises(ValueError, match=r"missing 'column'/'name'"):
+    with pytest.raises(ValueError, match=r"missing required key 'column'"):
         parse_schema_structured([{"type": "INT"}], logger)
 
 
 def test_parse_schema_structured_raises_if_missing_type():
     logger = MagicMock()
-    with pytest.raises(ValueError, match=r"missing 'type'"):
+    with pytest.raises(ValueError, match=r"missing required key 'type'"):
         parse_schema_structured([{"column": "id"}], logger)
 
 
@@ -350,3 +349,20 @@ def test_resolve_schema_returns_structured_schema_precedence():
     assert source == SchemaSource.SCHEMA_STRUCTURED
     assert schema_defs[0][0] == "id"
     assert isinstance(schema_defs[0][1], IntegerType)
+
+
+def test_parse_schema_structured_raises_on_unsupported_keys():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "extra": "nope"}]
+
+    with pytest.raises(ValueError, match=r"unsupported keys.*extra"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_allows_nullable_and_comment():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "nullable": False, "comment": "pk"}]
+
+    parsed = parse_schema_structured(schema, logger)
+    assert parsed[0][0] == "id"
+    assert isinstance(parsed[0][1], IntegerType)

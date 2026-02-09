@@ -193,8 +193,8 @@ def resolve_schema(
     Validation note:
         - In the ingest pipeline, config is validated by `ConfigLoader` before this
           function runs (e.g., `schema` must be a list when provided, `schema_sql` must be
-          a string when provided). This function assumes config is validated upstream, 
-          but also performs defensive type checks and fails fast if invalid schema 
+          a string when provided). This function assumes config is validated upstream,
+          but also performs defensive type checks and fails fast if invalid schema
           definitions are encountered.
 
 
@@ -250,7 +250,12 @@ def resolve_schema(
         )
 
     # Empty structured schema explicitly falls back to schema_sql
-    if isinstance(schema, list) and not schema and isinstance(schema_sql, str) and schema_sql.strip():
+    if (
+        isinstance(schema, list)
+        and not schema
+        and isinstance(schema_sql, str)
+        and schema_sql.strip()
+    ):
         logger.info(
             f"'schema' provided but empty for table {table.get('name')}; falling back to schema_sql."
         )

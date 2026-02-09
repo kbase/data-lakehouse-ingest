@@ -177,6 +177,8 @@ def resolve_schema(
            - If `schema` is provided as a **non-empty** list-of-maps, it takes precedence.
            - The list-of-maps is parsed via `parse_schema_structured()` and returned as
              normalized `(name, DataType)` tuples with `SchemaSource.SCHEMA_STRUCTURED`.
+             If both `schema` and `schema_sql` are provided, a non-empty structured schema
+             takes precedence and `schema_sql` is ignored.
 
         3) SQL-style schema (`schema_sql`):
            - If `schema` is absent/empty and `schema_sql` is a non-empty string, it is
@@ -191,8 +193,10 @@ def resolve_schema(
     Validation note:
         - In the ingest pipeline, config is validated by `ConfigLoader` before this
           function runs (e.g., `schema` must be a list when provided, `schema_sql` must be
-          a string when provided). This function assumes that validation has already
-          occurred and focuses on precedence + normalization.
+          a string when provided). This function assumes config is validated upstream,
+          but also performs defensive type checks and fails fast if invalid schema
+          definitions are encountered.
+
 
     Args:
         spark (SparkSession):
@@ -221,6 +225,7 @@ def resolve_schema(
     schema = table.get("schema")
     linkml_schema = table.get("linkml_schema")
 
+    # LinkML schemas are not supported yet; fail fast if provided
     if linkml_schema:
         msg = (
             f"LinkML schema provided for table '{table.get('name')}', "
@@ -229,6 +234,38 @@ def resolve_schema(
         logger.error(msg)
         raise NotImplementedError(msg)
         # TODO: Implement LinkML schema parsing once linkml_parser is ready
+
+    # Defensive check: schema must be a list if present
+    if schema is not None and not isinstance(schema, list):
+        raise ValueError(
+            f"Invalid schema definition for table '{table.get('name')}': "
+            f"'schema' must be a list of column definitions, got {type(schema).__name__}."
+        )
+
+    # Defensive check: schema_sql must be a string if present
+    if schema_sql is not None and not isinstance(schema_sql, str):
+        raise ValueError(
+            f"Invalid schema definition for table '{table.get('name')}': "
+            f"'schema_sql' must be a string, got {type(schema_sql).__name__}."
+        )
+
+    # Empty structured schema explicitly falls back to schema_sql
+    if (
+        isinstance(schema, list)
+        and not schema
+        and isinstance(schema_sql, str)
+        and schema_sql.strip()
+    ):
+        logger.info(
+            f"'schema' provided but empty for table {table.get('name')}; falling back to schema_sql."
+        )
+
+    # If both are provided, structured schema wins when non-empty.
+    if isinstance(schema, list) and schema and isinstance(schema_sql, str) and schema_sql.strip():
+        logger.info(
+            f"Both 'schema' (structured) and 'schema_sql' provided for table {table.get('name')}; "
+            "using structured schema and ignoring schema_sql."
+        )
 
     # Structured schema takes precedence and is normalized immediately
     if isinstance(schema, list) and schema:

@@ -60,6 +60,40 @@ def test_resolve_schema_returns_inferred_when_none_present():
     assert source == SchemaSource.INFERRED
 
 
+def test_resolve_schema_raises_when_schema_not_list():
+    table = {"name": "t1", "schema": {"column": "id", "type": "INT"}}
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    with pytest.raises(ValueError, match=r"'schema' must be a list of column definitions"):
+        resolve_schema(mock_spark, table, mock_logger)
+
+
+def test_resolve_schema_raises_when_schema_sql_not_string():
+    table = {"name": "t1", "schema_sql": ["id INT"]}  # not a string
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    with pytest.raises(ValueError, match=r"'schema_sql' must be a string"):
+        resolve_schema(mock_spark, table, mock_logger)
+
+
+def test_resolve_schema_empty_structured_schema_falls_back_to_schema_sql():
+    table = {"name": "t1", "schema": [], "schema_sql": "id INT"}
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
+
+    assert source == SchemaSource.SCHEMA_SQL
+    assert schema_defs[0][0] == "id"
+    assert isinstance(schema_defs[0][1], IntegerType)
+
+    mock_logger.info.assert_any_call(
+        "'schema' provided but empty for table t1; falling back to schema_sql."
+    )
+
+
 # ----------------------------------------------------------------------
 # parse_schema_sql tests
 # ----------------------------------------------------------------------
@@ -144,6 +178,30 @@ def test_parse_schema_sql_raises_on_trailing_comma_empty_segment():
 
     with pytest.raises(ValueError, match="Empty column definition in schema_sql"):
         parse_schema_sql("id INT,", logger)
+
+
+def test_parse_schema_sql_raises_on_unmatched_close_paren():
+    logger = MagicMock()
+    with pytest.raises(ValueError, match=r"unmatched '\)' at position"):
+        parse_schema_sql("id INT)", logger)
+
+
+def test_parse_schema_sql_raises_on_unmatched_close_angle():
+    logger = MagicMock()
+    with pytest.raises(ValueError, match=r"unmatched '>' at position"):
+        parse_schema_sql("tags ARRAY<STRING>>", logger)
+
+
+def test_parse_schema_sql_raises_on_unclosed_paren():
+    logger = MagicMock()
+    with pytest.raises(ValueError, match=r"unclosed '\('"):
+        parse_schema_sql("amount DECIMAL(10,2", logger)
+
+
+def test_parse_schema_sql_raises_on_unclosed_angle():
+    logger = MagicMock()
+    with pytest.raises(ValueError, match=r"unclosed '<'"):
+        parse_schema_sql("tags ARRAY<STRING", logger)
 
 
 # ----------------------------------------------------------------------
@@ -366,3 +424,35 @@ def test_parse_schema_structured_allows_nullable_and_comment():
     parsed = parse_schema_structured(schema, logger)
     assert parsed[0][0] == "id"
     assert isinstance(parsed[0][1], IntegerType)
+
+
+def test_parse_schema_structured_raises_on_empty_column_value():
+    logger = MagicMock()
+    schema = [{"column": "   ", "type": "INT"}]
+
+    with pytest.raises(ValueError, match=r"empty 'column' value"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_on_empty_type_value():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "   "}]
+
+    with pytest.raises(ValueError, match=r"empty 'type' value"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_on_nullable_not_bool():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "nullable": "false"}]  # not bool
+
+    with pytest.raises(ValueError, match=r"invalid 'nullable'"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_on_comment_not_string_or_none():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "comment": 123}]  # invalid
+
+    with pytest.raises(ValueError, match=r"invalid 'comment'"):
+        parse_schema_structured(schema, logger)

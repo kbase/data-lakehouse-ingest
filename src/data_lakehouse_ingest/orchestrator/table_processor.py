@@ -133,9 +133,7 @@ def process_table(
     fmt = detect_format(bronze_path, table.get("format"))
 
     # --- Resolve schema ---
-    resolved = resolve_schema(
-        spark=spark, table=table, logger=logger, minio_client=minio_client
-    )
+    resolved = resolve_schema(spark=spark, table=table, logger=logger, minio_client=minio_client)
 
     # --- Load format defaults ---
     if hasattr(loader, "get_defaults_for"):

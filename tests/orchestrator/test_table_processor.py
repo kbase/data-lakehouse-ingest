@@ -5,6 +5,7 @@ from data_lakehouse_ingest.orchestrator.table_processor import process_table
 from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
 from types import SimpleNamespace
 
+
 @pytest.fixture
 def mock_spark():
     spark = MagicMock()

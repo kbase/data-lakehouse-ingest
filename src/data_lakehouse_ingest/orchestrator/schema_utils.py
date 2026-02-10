@@ -26,6 +26,8 @@ from pyspark.sql.types import (
 import logging
 from enum import Enum
 import re
+from dataclasses import dataclass
+from typing import Any
 
 
 def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> DataType:
@@ -120,11 +122,11 @@ class SchemaSource(Enum):
             INFERRED, schema alignment is skipped and Spark’s inferred schema
             is used as-is.
 
-        - Metadata application:
-            Column-level metadata (e.g., comments) is applied only when the
-            schema source is SCHEMA_STRUCTURED, because comments and other
-            rich metadata are represented exclusively in the structured
-            list-of-maps schema format.
+        - Metadata availability:
+            Column-level metadata (e.g., comments) may be present when the schema
+            is defined using a structured list-of-maps. Metadata application is
+            driven by the presence of such metadata in the resolved schema, not
+            by the schema source enum itself.
 
         - Reporting and auditing:
             The schema source is included in per-table ingestion reports so
@@ -152,13 +154,27 @@ class SchemaSource(Enum):
 
 NormalizedSchema = list[tuple[str, DataType]]
 
+@dataclass(frozen=True)
+class ResolvedSchema:
+    """
+    Result of resolving a table schema for downstream orchestration.
+
+    - schema_defs: normalized (name, DataType) tuples used for schema enforcement
+    - schema_source: enum used for reporting/auditing
+    - comments_schema: raw structured schema (list-of-maps) when available, used to apply comments
+    """
+    schema_defs: NormalizedSchema | None
+    schema_source: SchemaSource
+    comments_schema: list[dict[str, Any]] | None
+
+
 
 def resolve_schema(
     spark: SparkSession,
     table: dict[str, object],
     logger: logging.Logger,
     minio_client: Minio | None = None,
-) -> tuple[NormalizedSchema | None, SchemaSource]:
+) -> ResolvedSchema:
     """
     Resolve the schema for a table and return both a normalized schema and its origin.
 
@@ -270,16 +286,28 @@ def resolve_schema(
     # Structured schema takes precedence and is normalized immediately
     if isinstance(schema, list) and schema:
         logger.info(f"Using structured schema for table {table.get('name')}")
-        return parse_schema_structured(schema, logger), SchemaSource.SCHEMA_STRUCTURED
+        return ResolvedSchema(
+            schema_defs=parse_schema_structured(schema, logger),
+            schema_source=SchemaSource.SCHEMA_STRUCTURED,
+            comments_schema=schema,  # pass through raw list-of-maps for delta_comments.py
+        )
 
     # SQL-style schema is parsed into the same normalized representation
     if isinstance(schema_sql, str) and schema_sql.strip():
         logger.info(f"Using schema_sql for table {table.get('name')}")
-        return parse_schema_sql(schema_sql, logger), SchemaSource.SCHEMA_SQL
+        return ResolvedSchema(
+            schema_defs=parse_schema_sql(schema_sql, logger),
+            schema_source=SchemaSource.SCHEMA_SQL,
+            comments_schema=None,
+        )
 
     # No explicit schema → downstream code relies on Spark inference
     logger.info(f"No schema provided for table {table.get('name')}; using inferred schema")
-    return None, SchemaSource.INFERRED
+    return ResolvedSchema(
+        schema_defs=None,
+        schema_source=SchemaSource.INFERRED,
+        comments_schema=None,
+    )
 
 
 def apply_schema_columns(
@@ -621,7 +649,15 @@ def parse_schema_structured(
         if "column" not in coldef:
             raise ValueError(f"Schema entry at index {i} missing required key 'column'")
 
-        col_name = str(coldef["column"]).strip()
+        col_raw = coldef["column"]
+
+        if not isinstance(col_raw, str):
+            raise ValueError(
+                f"Schema entry at index {i} has invalid 'column' "
+                f"(expected string, got {type(col_raw).__name__})"
+            )
+
+        col_name = col_raw.strip()
         if not col_name:
             raise ValueError(f"Schema entry at index {i} has empty 'column' value")
 
@@ -629,7 +665,13 @@ def parse_schema_structured(
         if "type" not in coldef:
             raise ValueError(f"Schema entry for '{col_name}' missing required key 'type'")
 
-        typ_raw = str(coldef["type"]).strip()
+        type_raw = coldef["type"]
+        if not isinstance(type_raw, str):
+            raise ValueError(
+                f"Schema entry for '{col_name}' has invalid 'type' "
+                f"(expected string, got {type(type_raw).__name__})"
+            )
+        typ_raw = type_raw.strip()
         if not typ_raw:
             raise ValueError(f"Schema entry for '{col_name}' has empty 'type' value")
 

@@ -3,7 +3,7 @@ import logging
 from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.table_processor import process_table
 from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
-
+from types import SimpleNamespace
 
 @pytest.fixture
 def mock_spark():
@@ -38,7 +38,11 @@ def table_config():
 # ---------------------------------------------------------------------
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=("CREATE TABLE ...", "SCHEMA_SQL"),
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch(
@@ -97,9 +101,10 @@ def test_process_table_success(
 )
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=(
-        [{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
-        SchemaSource.SCHEMA_STRUCTURED,
+    return_value=SimpleNamespace(
+        schema_defs=[{"column": "gene_id", "type": "string"}],
+        schema_source=SchemaSource.SCHEMA_STRUCTURED,
+        comments_schema=[{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -162,7 +167,11 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 @patch("data_lakehouse_ingest.orchestrator.table_processor.apply_comments_from_table_schema")
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=("CREATE TABLE ...", SchemaSource.SCHEMA_SQL),
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch(

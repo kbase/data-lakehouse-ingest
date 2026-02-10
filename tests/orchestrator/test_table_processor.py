@@ -3,6 +3,7 @@ import logging
 from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.table_processor import process_table
 from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
+from types import SimpleNamespace
 
 
 @pytest.fixture
@@ -38,7 +39,11 @@ def table_config():
 # ---------------------------------------------------------------------
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=("CREATE TABLE ...", "SCHEMA_SQL"),
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch(
@@ -97,9 +102,10 @@ def test_process_table_success(
 )
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=(
-        [{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
-        SchemaSource.SCHEMA_STRUCTURED,
+    return_value=SimpleNamespace(
+        schema_defs=[{"column": "gene_id", "type": "string"}],
+        schema_source=SchemaSource.SCHEMA_STRUCTURED,
+        comments_schema=[{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -162,7 +168,11 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 @patch("data_lakehouse_ingest.orchestrator.table_processor.apply_comments_from_table_schema")
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
-    return_value=("CREATE TABLE ...", SchemaSource.SCHEMA_SQL),
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
 @patch(
@@ -234,3 +244,123 @@ def test_process_table_data_load_failure(
     assert result["phase"] == "data_loading"
     assert "Simulated load failure" in result["error"]
     mock_logger.error.assert_called_once()
+
+
+# ---------------------------------------------------------------------
+# logger.context_filter branch
+# ---------------------------------------------------------------------
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
+)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.load_table_data",
+    return_value=(MagicMock(), 100),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
+    side_effect=lambda df, **_: (df, {"dropped_columns": []}),
+)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+def test_process_table_sets_logger_table_context_when_context_filter_present(
+    mock_write_to_delta,
+    mock_apply_schema,
+    mock_load_data,
+    mock_detect_format,
+    mock_resolve_schema,
+    mock_spark,
+    mock_logger,
+    mock_loader,
+    table_config,
+):
+    # Add the attribute that your production logger has
+    mock_logger.context_filter = MagicMock()
+
+    ctx = {
+        "tenant": "tenant_alpha",
+        "namespace": "tenant_alpha__dataset",
+        "namespace_base_path": "s3a://silver/",
+    }
+
+    process_table(
+        spark=mock_spark,
+        logger=mock_logger,
+        loader=mock_loader,
+        ctx=ctx,
+        table=table_config,
+        run_started_at_iso="2025-10-31T12:00:00Z",
+    )
+
+    mock_logger.context_filter.set_table.assert_called_once_with("test_table")
+
+
+# ---------------------------------------------------------------------
+# loader fallback defaults branch (no get_defaults_for)
+# and the TSV delimiter logic ("\t")
+# ---------------------------------------------------------------------
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comments_schema=None,
+    ),
+)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="tsv")
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.load_table_data",
+    return_value=(MagicMock(), 100),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
+    side_effect=lambda df, **_: (df, {"dropped_columns": []}),
+)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defaults_for(
+    mock_write_to_delta,
+    mock_apply_schema,
+    mock_load_data,
+    mock_detect_format,
+    mock_resolve_schema,
+    mock_spark,
+    mock_logger,
+    table_config,
+):
+    # Minimal loader that intentionally lacks get_defaults_for()
+    class LoaderNoDefaults:
+        def get_bronze_path(self, name):
+            return "s3a://bronze/test_table/"
+
+        def get_silver_path(self, name):
+            return "s3a://silver/test_table/"
+
+    loader = LoaderNoDefaults()
+
+    ctx = {
+        "tenant": "tenant_alpha",
+        "namespace": "tenant_alpha__dataset",
+        "namespace_base_path": "s3a://silver/",
+    }
+
+    process_table(
+        spark=mock_spark,
+        logger=mock_logger,
+        loader=loader,
+        ctx=ctx,
+        table=table_config,
+        run_started_at_iso="2025-10-31T12:00:00Z",
+    )
+
+    # Assert fallback delimiter for TSV was used
+    _, args, _ = mock_load_data.mock_calls[0]
+    # load_table_data(spark, bronze_path, fmt, opts, logger)
+    opts = args[3]
+    assert opts["delimiter"] == "\t"
+    assert opts["header"] == "true"
+    assert opts["inferSchema"] == "false"
+    assert opts["recursiveFileLookup"] == "true"

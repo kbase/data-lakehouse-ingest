@@ -37,9 +37,12 @@ def test_resolve_schema_returns_schema_sql():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
+    resolved = resolve_schema(mock_spark, table, mock_logger)
 
-    assert source == SchemaSource.SCHEMA_SQL
+    assert resolved.schema_source == SchemaSource.SCHEMA_SQL
+    assert resolved.comments_schema is None
+    schema_defs = resolved.schema_defs
+    assert schema_defs is not None
 
     assert schema_defs[0][0] == "id"
     assert isinstance(schema_defs[0][1], IntegerType)
@@ -54,10 +57,11 @@ def test_resolve_schema_returns_inferred_when_none_present():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    schema, source = resolve_schema(mock_spark, table, mock_logger)
+    resolved = resolve_schema(mock_spark, table, mock_logger)
 
-    assert schema is None
-    assert source == SchemaSource.INFERRED
+    assert resolved.schema_defs is None
+    assert resolved.schema_source == SchemaSource.INFERRED
+    assert resolved.comments_schema is None
 
 
 def test_resolve_schema_raises_when_schema_not_list():
@@ -83,14 +87,41 @@ def test_resolve_schema_empty_structured_schema_falls_back_to_schema_sql():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
+    resolved = resolve_schema(mock_spark, table, mock_logger)
 
-    assert source == SchemaSource.SCHEMA_SQL
+    assert resolved.schema_source == SchemaSource.SCHEMA_SQL
+    assert resolved.comments_schema is None
+    schema_defs = resolved.schema_defs
+    assert schema_defs is not None
     assert schema_defs[0][0] == "id"
     assert isinstance(schema_defs[0][1], IntegerType)
 
     mock_logger.info.assert_any_call(
         "'schema' provided but empty for table t1; falling back to schema_sql."
+    )
+
+
+def test_resolve_schema_returns_structured_schema_precedence():
+    table = {
+        "name": "t1",
+        "schema": [{"column": "id", "type": "INT"}],
+        "schema_sql": "id STRING",
+    }
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    resolved = resolve_schema(mock_spark, table, mock_logger)
+
+    assert resolved.schema_source == SchemaSource.SCHEMA_STRUCTURED
+    assert resolved.comments_schema == table["schema"]
+    schema_defs = resolved.schema_defs
+    assert schema_defs is not None
+    assert schema_defs[0][0] == "id"
+    assert isinstance(schema_defs[0][1], IntegerType)
+
+    mock_logger.info.assert_any_call(
+        "Both 'schema' (structured) and 'schema_sql' provided for table t1; "
+        "using structured schema and ignoring schema_sql."
     )
 
 
@@ -204,6 +235,12 @@ def test_parse_schema_sql_raises_on_unclosed_angle():
         parse_schema_sql("tags ARRAY<STRING", logger)
 
 
+def test_parse_schema_sql_raises_on_double_comma_empty_segment():
+    logger = MagicMock()
+    with pytest.raises(ValueError, match="Empty column definition in schema_sql"):
+        parse_schema_sql("id INT,, name STRING", logger)
+
+
 # ----------------------------------------------------------------------
 # apply_schema_columns tests
 # ----------------------------------------------------------------------
@@ -280,8 +317,11 @@ def test_apply_schema_columns_with_structured_schema_orders_and_drops_extra():
         ],
     }
 
-    schema_defs, source = resolve_schema(mock_spark, table, logger)
-    assert source == SchemaSource.SCHEMA_STRUCTURED
+    resolved = resolve_schema(mock_spark, table, logger)
+
+    assert resolved.schema_source == SchemaSource.SCHEMA_STRUCTURED
+    schema_defs = resolved.schema_defs
+    assert schema_defs is not None
 
     df2, meta = apply_schema_columns(df, schema_defs, logger)
 
@@ -391,22 +431,6 @@ def test_parse_schema_structured_raises_on_unsupported_type():
     logger = MagicMock()
     with pytest.raises(ValueError, match=r"Unsupported data type 'SUPERSTRING'"):
         parse_schema_structured([{"column": "id", "type": "SUPERSTRING"}], logger)
-
-
-def test_resolve_schema_returns_structured_schema_precedence():
-    table = {
-        "name": "t1",
-        "schema": [{"column": "id", "type": "INT"}],
-        "schema_sql": "id STRING",
-    }
-    mock_spark = MagicMock()
-    mock_logger = MagicMock()
-
-    schema_defs, source = resolve_schema(mock_spark, table, mock_logger)
-
-    assert source == SchemaSource.SCHEMA_STRUCTURED
-    assert schema_defs[0][0] == "id"
-    assert isinstance(schema_defs[0][1], IntegerType)
 
 
 def test_parse_schema_structured_raises_on_unsupported_keys():

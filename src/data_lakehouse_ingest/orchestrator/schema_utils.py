@@ -154,6 +154,7 @@ class SchemaSource(Enum):
 
 NormalizedSchema = list[tuple[str, DataType]]
 
+
 @dataclass(frozen=True)
 class ResolvedSchema:
     """
@@ -163,10 +164,10 @@ class ResolvedSchema:
     - schema_source: enum used for reporting/auditing
     - comments_schema: raw structured schema (list-of-maps) when available, used to apply comments
     """
+
     schema_defs: NormalizedSchema | None
     schema_source: SchemaSource
     comments_schema: list[dict[str, Any]] | None
-
 
 
 def resolve_schema(

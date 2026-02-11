@@ -40,7 +40,7 @@ def test_resolve_schema_returns_schema_sql():
     resolved = resolve_schema(mock_spark, table, mock_logger)
 
     assert resolved.schema_source == SchemaSource.SCHEMA_SQL
-    assert resolved.comments_schema is None
+    assert resolved.comment_metadata is None
     schema_defs = resolved.schema_defs
     assert schema_defs is not None
 
@@ -61,7 +61,7 @@ def test_resolve_schema_returns_inferred_when_none_present():
 
     assert resolved.schema_defs is None
     assert resolved.schema_source == SchemaSource.INFERRED
-    assert resolved.comments_schema is None
+    assert resolved.comment_metadata is None
 
 
 def test_resolve_schema_raises_when_schema_not_list():
@@ -90,7 +90,7 @@ def test_resolve_schema_empty_structured_schema_falls_back_to_schema_sql():
     resolved = resolve_schema(mock_spark, table, mock_logger)
 
     assert resolved.schema_source == SchemaSource.SCHEMA_SQL
-    assert resolved.comments_schema is None
+    assert resolved.comment_metadata is None
     schema_defs = resolved.schema_defs
     assert schema_defs is not None
     assert schema_defs[0][0] == "id"
@@ -104,7 +104,7 @@ def test_resolve_schema_empty_structured_schema_falls_back_to_schema_sql():
 def test_resolve_schema_returns_structured_schema_precedence():
     table = {
         "name": "t1",
-        "schema": [{"column": "id", "type": "INT"}],
+        "schema": [{"column": "id", "type": "INT", "comment": "pk"}],
         "schema_sql": "id STRING",
     }
     mock_spark = MagicMock()
@@ -113,7 +113,7 @@ def test_resolve_schema_returns_structured_schema_precedence():
     resolved = resolve_schema(mock_spark, table, mock_logger)
 
     assert resolved.schema_source == SchemaSource.SCHEMA_STRUCTURED
-    assert resolved.comments_schema == table["schema"]
+    assert resolved.comment_metadata == [{"column": "id", "comment": "pk"}]
     schema_defs = resolved.schema_defs
     assert schema_defs is not None
     assert schema_defs[0][0] == "id"
@@ -479,4 +479,20 @@ def test_parse_schema_structured_raises_on_comment_not_string_or_none():
     schema = [{"column": "id", "type": "INT", "comment": 123}]  # invalid
 
     with pytest.raises(ValueError, match=r"invalid 'comment'"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_when_column_not_string():
+    logger = MagicMock()
+    schema = [{"column": 123, "type": "INT"}]
+
+    with pytest.raises(ValueError, match=r"invalid 'column'.*expected string"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_when_type_not_string():
+    logger = MagicMock()
+    schema = [{"column": "id", "type": 123}]
+
+    with pytest.raises(ValueError, match=r"invalid 'type'.*expected string"):
         parse_schema_structured(schema, logger)

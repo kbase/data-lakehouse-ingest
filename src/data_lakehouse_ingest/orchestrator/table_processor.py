@@ -188,17 +188,15 @@ def process_table(
         logger=logger,
     )
 
+    # Applies Delta column comments when comment metadata is available (from structured schema)
     comments_report = None
 
-    # Apply column comments when structured schema metadata (comments) is available
-    comments_report = None
-
-    if resolved.comments_schema:
+    if resolved.comment_metadata:
         full_table_name = f"{namespace}.{name}"
         comments_report = apply_comments_from_table_schema(
             spark=spark,
             full_table_name=full_table_name,
-            table_schema=resolved.comments_schema,
+            table_schema=resolved.comment_metadata,
             logger=logger,
             require_existing_table=True,
         )

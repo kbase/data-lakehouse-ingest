@@ -42,7 +42,7 @@ def table_config():
     return_value=SimpleNamespace(
         schema_defs="CREATE TABLE ...",
         schema_source=SchemaSource.SCHEMA_SQL,
-        comments_schema=None,
+        comment_metadata=None,
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -105,7 +105,7 @@ def test_process_table_success(
     return_value=SimpleNamespace(
         schema_defs=[{"column": "gene_id", "type": "string"}],
         schema_source=SchemaSource.SCHEMA_STRUCTURED,
-        comments_schema=[{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
+        comment_metadata=[{"column": "gene_id", "type": "string", "comment": "Gene identifier"}],
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -171,7 +171,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     return_value=SimpleNamespace(
         schema_defs="CREATE TABLE ...",
         schema_source=SchemaSource.SCHEMA_SQL,
-        comments_schema=None,
+        comment_metadata=None,
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -254,7 +254,7 @@ def test_process_table_data_load_failure(
     return_value=SimpleNamespace(
         schema_defs="CREATE TABLE ...",
         schema_source=SchemaSource.SCHEMA_SQL,
-        comments_schema=None,
+        comment_metadata=None,
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="csv")
@@ -308,7 +308,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     return_value=SimpleNamespace(
         schema_defs="CREATE TABLE ...",
         schema_source=SchemaSource.SCHEMA_SQL,
-        comments_schema=None,
+        comment_metadata=None,
     ),
 )
 @patch("data_lakehouse_ingest.orchestrator.table_processor.detect_format", return_value="tsv")

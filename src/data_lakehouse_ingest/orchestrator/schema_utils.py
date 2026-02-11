@@ -162,12 +162,12 @@ class ResolvedSchema:
 
     - schema_defs: normalized (name, DataType) tuples used for schema enforcement
     - schema_source: enum used for reporting/auditing
-    - comments_schema: raw structured schema (list-of-maps) when available, used to apply comments
+    - comment_metadata: minimized list-of-maps containing only comment info for delta_comments
     """
 
     schema_defs: NormalizedSchema | None
     schema_source: SchemaSource
-    comments_schema: list[dict[str, Any]] | None
+    comment_metadata: list[dict[str, Any]] | None
 
 
 def resolve_schema(
@@ -287,10 +287,17 @@ def resolve_schema(
     # Structured schema takes precedence and is normalized immediately
     if isinstance(schema, list) and schema:
         logger.info(f"Using structured schema for table {table.get('name')}")
+
+        comment_metadata = [
+            {"column": coldef["column"], "comment": coldef.get("comment")}
+            for coldef in schema
+            if isinstance(coldef.get("comment"), str) and coldef["comment"].strip()
+        ]
+
         return ResolvedSchema(
             schema_defs=parse_schema_structured(schema, logger),
             schema_source=SchemaSource.SCHEMA_STRUCTURED,
-            comments_schema=schema,  # pass through raw list-of-maps for delta_comments.py
+            comment_metadata=comment_metadata or None,
         )
 
     # SQL-style schema is parsed into the same normalized representation
@@ -299,7 +306,7 @@ def resolve_schema(
         return ResolvedSchema(
             schema_defs=parse_schema_sql(schema_sql, logger),
             schema_source=SchemaSource.SCHEMA_SQL,
-            comments_schema=None,
+            comment_metadata=None,
         )
 
     # No explicit schema → downstream code relies on Spark inference
@@ -307,7 +314,7 @@ def resolve_schema(
     return ResolvedSchema(
         schema_defs=None,
         schema_source=SchemaSource.INFERRED,
-        comments_schema=None,
+        comment_metadata=None,
     )
 
 

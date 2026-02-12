@@ -289,9 +289,7 @@ def resolve_schema(
         logger.info(f"Using structured schema for table {table.get('name')}")
 
         comment_metadata = [
-            {"column": coldef["column"], "comment": coldef.get("comment")}
-            for coldef in schema
-            if isinstance(coldef.get("comment"), str) and coldef["comment"].strip()
+            {"column": coldef["column"], "comment": coldef.get("comment")} for coldef in schema
         ]
 
         return ResolvedSchema(

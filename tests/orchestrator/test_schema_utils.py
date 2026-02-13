@@ -82,26 +82,16 @@ def test_resolve_schema_raises_when_schema_sql_not_string():
         resolve_schema(mock_spark, table, mock_logger)
 
 
-def test_resolve_schema_empty_structured_schema_falls_back_to_schema_sql():
+def test_resolve_schema_raises_when_schema_and_schema_sql_both_defined_even_if_schema_empty():
     table = {"name": "t1", "schema": [], "schema_sql": "id INT"}
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    resolved = resolve_schema(mock_spark, table, mock_logger)
-
-    assert resolved.schema_source == SchemaSource.SCHEMA_SQL
-    assert resolved.comment_metadata is None
-    schema_defs = resolved.schema_defs
-    assert schema_defs is not None
-    assert schema_defs[0][0] == "id"
-    assert isinstance(schema_defs[0][1], IntegerType)
-
-    mock_logger.info.assert_any_call(
-        "'schema' provided but empty for table t1; falling back to schema_sql."
-    )
+    with pytest.raises(ValueError, match=r"both 'schema' and 'schema_sql' are defined"):
+        resolve_schema(mock_spark, table, mock_logger)
 
 
-def test_resolve_schema_returns_structured_schema_precedence():
+def test_resolve_schema_raises_when_schema_and_schema_sql_both_defined():
     table = {
         "name": "t1",
         "schema": [{"column": "id", "type": "INT", "comment": "pk"}],
@@ -110,19 +100,8 @@ def test_resolve_schema_returns_structured_schema_precedence():
     mock_spark = MagicMock()
     mock_logger = MagicMock()
 
-    resolved = resolve_schema(mock_spark, table, mock_logger)
-
-    assert resolved.schema_source == SchemaSource.SCHEMA_STRUCTURED
-    assert resolved.comment_metadata == [{"column": "id", "comment": "pk"}]
-    schema_defs = resolved.schema_defs
-    assert schema_defs is not None
-    assert schema_defs[0][0] == "id"
-    assert isinstance(schema_defs[0][1], IntegerType)
-
-    mock_logger.info.assert_any_call(
-        "Both 'schema' (structured) and 'schema_sql' provided for table t1; "
-        "using structured schema and ignoring schema_sql."
-    )
+    with pytest.raises(ValueError, match=r"both 'schema' and 'schema_sql' are defined"):
+        resolve_schema(mock_spark, table, mock_logger)
 
 
 # ----------------------------------------------------------------------

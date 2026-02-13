@@ -185,24 +185,26 @@ def resolve_schema(
     table (e.g., whether to apply schema alignment and whether column comments are
     eligible to be applied from structured schema metadata).
 
-    Precedence and behavior (LinkML not yet supported):
+    Behavior and validation (LinkML not yet supported):
         1) LinkML:
            - If `linkml_schema` is provided, the function logs an error and raises
              NotImplementedError. There is no fallback when LinkML is present.
 
         2) Structured schema (`schema`):
-           - If `schema` is provided as a **non-empty** list-of-maps, it takes precedence.
-           - The list-of-maps is parsed via `parse_schema_structured()` and returned as
-             normalized `(name, DataType)` tuples with `SchemaSource.SCHEMA_STRUCTURED`.
-             If both `schema` and `schema_sql` are provided, a non-empty structured schema
-             takes precedence and `schema_sql` is ignored.
+           - If `schema` is provided as a **non-empty** list-of-maps, it is parsed
+             via `parse_schema_structured()` and returned as normalized
+             `(name, DataType)` tuples with `SchemaSource.SCHEMA_STRUCTURED`.
 
         3) SQL-style schema (`schema_sql`):
            - If `schema` is absent/empty and `schema_sql` is a non-empty string, it is
              parsed via `parse_schema_sql()` and returned as normalized tuples with
              `SchemaSource.SCHEMA_SQL`.
 
-        4) Inferred:
+        4) Invalid combination:
+           - If both `schema` and `schema_sql` are provided in the same table
+             definition, this function raises `ValueError`.
+
+        5) Inferred:
            - If neither a non-empty structured schema nor a non-empty `schema_sql` is
              provided, this function returns `(None, SchemaSource.INFERRED)`. Downstream
              code may rely on Spark’s inferred schema for loading and column order.
@@ -266,22 +268,11 @@ def resolve_schema(
             f"'schema_sql' must be a string, got {type(schema_sql).__name__}."
         )
 
-    # Empty structured schema explicitly falls back to schema_sql
-    if (
-        isinstance(schema, list)
-        and not schema
-        and isinstance(schema_sql, str)
-        and schema_sql.strip()
-    ):
-        logger.info(
-            f"'schema' provided but empty for table {table.get('name')}; falling back to schema_sql."
-        )
-
-    # If both are provided, structured schema wins when non-empty.
-    if isinstance(schema, list) and schema and isinstance(schema_sql, str) and schema_sql.strip():
-        logger.info(
-            f"Both 'schema' (structured) and 'schema_sql' provided for table {table.get('name')}; "
-            "using structured schema and ignoring schema_sql."
+    # Disallow providing both schema and schema_sql
+    if schema is not None and schema_sql is not None:
+        raise ValueError(
+            f"Invalid schema definition for table '{table.get('name')}': "
+            "both 'schema' and 'schema_sql' are defined. Please provide only one."
         )
 
     # Structured schema takes precedence and is normalized immediately

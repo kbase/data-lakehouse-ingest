@@ -276,7 +276,7 @@ def resolve_schema(
         )
 
     # Structured schema takes precedence and is normalized immediately
-    if isinstance(schema, list) and schema:
+    if schema:
         logger.info(f"Using structured schema for table {table.get('name')}")
 
         comment_metadata = [

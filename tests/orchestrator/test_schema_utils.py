@@ -238,7 +238,7 @@ def test_apply_schema_columns_casts_and_orders_columns():
     assert isinstance(df2.schema["name"].dataType, StringType)
     assert isinstance(df2.schema["value"].dataType, DoubleType)
     assert df2.collect() == [(1, "A", 3.14)]
-    assert meta["dropped_columns"] == []
+    assert meta == {"dropped_columns": []}
 
 
 def test_apply_schema_columns_raises_on_missing_columns():
@@ -267,7 +267,7 @@ def test_apply_schema_columns_drops_extra_columns():
     assert df2.columns == ["id", "name"]
     assert "extra" not in df2.columns
     assert df2.collect() == [(1, "A")]
-    assert meta["dropped_columns"] == ["extra"]
+    assert meta == {"dropped_columns": ["extra"]}
 
 
 def test_apply_schema_columns_returns_unchanged_when_no_schema_defs():
@@ -279,7 +279,7 @@ def test_apply_schema_columns_returns_unchanged_when_no_schema_defs():
 
     assert df2.columns == ["id"]
     assert df2.collect() == [(1,)]
-    assert meta["dropped_columns"] == []
+    assert meta == {"dropped_columns": []}
 
 
 def test_apply_schema_columns_with_structured_schema_orders_and_drops_extra():
@@ -306,7 +306,7 @@ def test_apply_schema_columns_with_structured_schema_orders_and_drops_extra():
 
     assert df2.columns == ["name", "id"]  # order comes from schema
     assert df2.collect() == [("A", 1)]  # extra column dropped
-    assert meta["dropped_columns"] == ["value"]
+    assert meta == {"dropped_columns": ["value"]}
 
 
 def test_apply_schema_columns_converts_json_string_to_array():
@@ -322,7 +322,7 @@ def test_apply_schema_columns_converts_json_string_to_array():
 
     row = df2.collect()[0]
     assert row["tags"] == ["a", "b"]
-    assert meta["dropped_columns"] == []
+    assert meta == {"dropped_columns": []}
 
 
 def test_apply_schema_columns_converts_json_string_to_nested_array():

@@ -20,7 +20,6 @@ from pyspark.sql import SparkSession
 from data_lakehouse_ingest.orchestrator.schema_utils import (
     resolve_schema,
     apply_schema_columns,
-    SchemaSource,
 )
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
@@ -51,7 +50,7 @@ def process_table(
     - Applies Delta column comments when a structured (list-of-maps) schema is used
     - Returns a structured report entry summarizing ingestion results
 
-    Column comments are applied only when the resolved schema source is `SchemaSource.SCHEMA_STRUCTURED`.
+    Column comments are applied when a structured schema with comments metadata is available.
 
     Args:
         spark (SparkSession):
@@ -133,10 +132,8 @@ def process_table(
     # --- Determine format ---
     fmt = detect_format(bronze_path, table.get("format"))
 
-    # --- Resolve schema (LinkML takes precedence) ---
-    schema_defs, schema_source = resolve_schema(
-        spark=spark, table=table, logger=logger, minio_client=minio_client
-    )
+    # --- Resolve schema ---
+    resolved = resolve_schema(spark=spark, table=table, logger=logger, minio_client=minio_client)
 
     # --- Load format defaults ---
     if hasattr(loader, "get_defaults_for"):
@@ -167,10 +164,10 @@ def process_table(
             "status": "failed",
         }
 
-    # --- Apply schema (rename; optionally drop extras if requested) ---
+    # --- Apply schema  ---
     df, schema_meta = apply_schema_columns(
         df=df,
-        schema_defs=schema_defs,
+        schema_defs=resolved.schema_defs,
         logger=logger,
     )
 
@@ -191,16 +188,15 @@ def process_table(
         logger=logger,
     )
 
+    # Applies Delta column comments when comment metadata is available (from structured schema)
     comments_report = None
 
-    # Apply column comments only when schema is list-of-maps (structured schema)
-    raw_structured_schema = table.get("schema")
-    if schema_source == SchemaSource.SCHEMA_STRUCTURED and isinstance(raw_structured_schema, list):
+    if resolved.comment_metadata:
         full_table_name = f"{namespace}.{name}"
         comments_report = apply_comments_from_table_schema(
             spark=spark,
             full_table_name=full_table_name,
-            table_schema=raw_structured_schema,  # list-of-maps from config
+            table_schema=resolved.comment_metadata,
             logger=logger,
             require_existing_table=True,
         )
@@ -219,7 +215,7 @@ def process_table(
         "target_table": f"{namespace}.{name}",
         "mode": mode,
         "format": fmt,
-        "schema_source": schema_source,
+        "schema_source": resolved.schema_source,
         "bronze_path": bronze_path,
         "silver_path": silver_path,
         "rows_in": rows_in,

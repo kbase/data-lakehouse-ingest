@@ -290,7 +290,7 @@ def resolve_schema(
         )
 
     # SQL-style schema is parsed into the same normalized representation
-    if isinstance(schema_sql, str) and schema_sql.strip():
+    if schema_sql and schema_sql.strip():
         logger.info(f"Using schema_sql for table {table.get('name')}")
         return ResolvedSchema(
             schema_defs=parse_schema_sql(schema_sql, logger),

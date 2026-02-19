@@ -82,6 +82,7 @@ def test_process_table_success(
 
     # Assertions
     assert result["status"] == "success"
+    assert result["target_table"] == "tenant_alpha__dataset.test_table"
     assert result["rows_in"] == 100
     assert result["rows_written"] == 95
     assert "elapsed_sec" in result
@@ -151,6 +152,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     )
 
     assert result["status"] == "success"
+    assert result["target_table"] == "tenant_alpha__dataset.test_table"
     assert result["comments_report"] == {"applied": 1, "skipped": 0, "missing_in_table": []}
 
     mock_apply_comments.assert_called_once()
@@ -211,6 +213,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     )
 
     assert result["status"] == "success"
+    assert result["target_table"] == "tenant_alpha__dataset.test_table"
     assert result["comments_report"] is None
     mock_apply_comments.assert_not_called()
 
@@ -287,7 +290,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "namespace_base_path": "s3a://silver/",
     }
 
-    process_table(
+    result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=mock_loader,
@@ -296,6 +299,8 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
+    assert result["status"] == "success"
+    assert result["target_table"] == "tenant_alpha__dataset.test_table"
     mock_logger.context_filter.set_table.assert_called_once_with("test_table")
 
 
@@ -347,7 +352,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
         "namespace_base_path": "s3a://silver/",
     }
 
-    process_table(
+    result = process_table(
         spark=mock_spark,
         logger=mock_logger,
         loader=loader,
@@ -355,6 +360,9 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
         table=table_config,
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
+
+    assert result["status"] == "success"
+    assert result["target_table"] == "tenant_alpha__dataset.test_table"
 
     # Assert fallback delimiter for TSV was used
     _, args, _ = mock_load_data.mock_calls[0]

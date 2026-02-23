@@ -17,8 +17,16 @@ from typing import Any
 from minio import Minio
 from pyspark.sql import SparkSession
 
-from .schema_utils import resolve_schema, apply_schema_columns
-from .io_utils import detect_format, load_table_data, write_to_delta
+from data_lakehouse_ingest.orchestrator.schema_utils import (
+    resolve_schema,
+    apply_schema_columns,
+)
+from data_lakehouse_ingest.orchestrator.io_utils import (
+    detect_format,
+    load_table_data,
+    write_to_delta,
+)
+from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
 
 def process_table(
@@ -39,7 +47,10 @@ def process_table(
     - Loads data from the Bronze path via Spark
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
+    - Applies Delta column comments when a structured (list-of-maps) schema is used
     - Returns a structured report entry summarizing ingestion results
+
+    Column comments are applied when a structured schema with comments metadata is available.
 
     Args:
         spark (SparkSession):
@@ -78,6 +89,7 @@ def process_table(
                 - "name", "tenant", "target_table"
                 - "bronze_path", "silver_path"
                 - "rows_in", "rows_written", "elapsed_sec"
+                - "comments_report": result of applying column comments, or None if not applicable
                 - "status": "success" or "failed"
                 - Additional diagnostic fields for errors or special handlers.
 
@@ -120,10 +132,8 @@ def process_table(
     # --- Determine format ---
     fmt = detect_format(bronze_path, table.get("format"))
 
-    # --- Resolve schema (LinkML takes precedence) ---
-    schema_sql, schema_source = resolve_schema(
-        spark=spark, table=table, logger=logger, minio_client=minio_client
-    )
+    # --- Resolve schema ---
+    resolved = resolve_schema(spark=spark, table=table, logger=logger, minio_client=minio_client)
 
     # --- Load format defaults ---
     if hasattr(loader, "get_defaults_for"):
@@ -154,10 +164,10 @@ def process_table(
             "status": "failed",
         }
 
-    # --- Apply schema (rename; optionally drop extras if requested) ---
+    # --- Apply schema  ---
     df, schema_meta = apply_schema_columns(
         df=df,
-        schema_sql=schema_sql,
+        schema_defs=resolved.schema_defs,
         logger=logger,
     )
 
@@ -178,6 +188,20 @@ def process_table(
         logger=logger,
     )
 
+    # Applies Delta column comments when comment metadata is available (from structured schema)
+    comments_report = None
+
+    if resolved.comment_metadata:
+        full_table_name = f"{namespace}.{name}"
+        comments_report = apply_comments_from_table_schema(
+            spark=spark,
+            full_table_name=full_table_name,
+            table_schema=resolved.comment_metadata,
+            logger=logger,
+            require_existing_table=True,
+        )
+        logger.info(f"Column comment apply report: {comments_report}")
+
     rows_rejected = 0
     partitions_written = None
     quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
@@ -191,7 +215,7 @@ def process_table(
         "target_table": f"{namespace}.{name}",
         "mode": mode,
         "format": fmt,
-        "schema_source": schema_source,
+        "schema_source": resolved.schema_source,
         "bronze_path": bronze_path,
         "silver_path": silver_path,
         "rows_in": rows_in,
@@ -202,4 +226,5 @@ def process_table(
         "quarantine_path": quarantine_path,
         "elapsed_sec": elapsed_sec,
         "status": "success",
+        "comments_report": comments_report,
     }

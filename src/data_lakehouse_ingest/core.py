@@ -8,7 +8,7 @@ import logging
 from typing import Any
 from datetime import datetime, timezone
 from minio import Minio
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 
 from .utils.report_utils import generate_report
 from .logger import safe_log_json
@@ -27,6 +27,7 @@ def ingest(
     spark: SparkSession | None = None,
     logger: logging.Logger | None = None,
     minio_client: Minio | None = None,
+    dataframes: dict[str, DataFrame] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrates the end-to-end data ingestion process defined by a configuration.
@@ -145,6 +146,7 @@ def ingest(
         ctx=ctx,
         started_at=started_at,
         minio_client=minio_client,
+        dataframes=dataframes,
     )
 
     # --- Final report ---

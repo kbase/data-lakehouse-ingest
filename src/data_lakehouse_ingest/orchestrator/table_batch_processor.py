@@ -22,7 +22,7 @@ from typing import Any
 from .error_utils import error_entry_for_exception
 from .table_processor import process_table
 import logging
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 from minio import Minio
 
 
@@ -33,6 +33,7 @@ def process_tables(
     ctx: dict,
     started_at: str,
     minio_client: Minio | None = None,
+    dataframes: dict[str, DataFrame] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Process all tables defined in the ingestion context.
@@ -88,6 +89,7 @@ def process_tables(
                 table=table,
                 run_started_at_iso=started_at,
                 minio_client=minio_client,
+                df_override=(dataframes or {}).get(table.get("name", "")),
             )
             table_reports.append(report_row)
         except Exception as e:

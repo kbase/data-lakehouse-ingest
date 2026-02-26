@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 from minio import Minio
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 
 from data_lakehouse_ingest.orchestrator.schema_utils import (
     resolve_schema,
@@ -37,6 +37,7 @@ def process_table(
     table: dict,
     run_started_at_iso: str,
     minio_client: Minio | None = None,
+    df_override: DataFrame | None = None,
 ) -> dict[str, Any]:
     """
     Ingest a single table from the Bronze layer into the Silver Delta layer.
@@ -123,36 +124,46 @@ def process_table(
     namespace_base_path = ctx["namespace_base_path"]
 
     name = table["name"]
-    bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path
 
-    # Regular CSV/TSV/JSON/XML path
     start_table_time = datetime.now(timezone.utc)
 
-    # --- Determine format ---
-    fmt = detect_format(bronze_path, table.get("format"))
-
-    # --- Resolve schema ---
+    # --- Resolve schema (needed for both modes) ---
     resolved = resolve_schema(spark=spark, table=table, logger=logger, minio_client=minio_client)
 
-    # --- Load format defaults ---
-    if hasattr(loader, "get_defaults_for"):
-        opts = loader.get_defaults_for(fmt)
-    else:
-        # Keep your original fallback behavior
-        delimiter = "\t" if fmt == "tsv" else ","
-        opts = {"header": True, "delimiter": delimiter, "inferSchema": False}
+    # We'll fill these depending on mode
+    bronze_path: str | None = None
+    fmt: str | None = None
 
-    # Normalize bools to Spark-friendly strings
-    opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
-    opts["recursiveFileLookup"] = "true"
-
-    logger.info(f"   Bronze: {bronze_path}")
     logger.info(f"   Silver: {silver_path}")
 
-    # --- Load data ---
+    # --- Load data (either DF override OR Bronze path) ---
     try:
-        df, rows_in = load_table_data(spark, bronze_path, fmt, opts, logger)
+        if df_override is not None:
+            df = df_override
+            rows_in = df.count()
+            bronze_path = "<dataframe>"
+            fmt = table.get("format") or "<dataframe>"
+            logger.info(f"   Bronze: {bronze_path} (override)")
+        else:
+            bronze_path = loader.get_bronze_path(name)
+            fmt = detect_format(bronze_path, table.get("format"))
+
+            # --- Load format defaults ---
+            if hasattr(loader, "get_defaults_for"):
+                opts = loader.get_defaults_for(fmt)
+            else:
+                delimiter = "\t" if fmt == "tsv" else ","
+                opts = {"header": True, "delimiter": delimiter, "inferSchema": False}
+
+            # Normalize bools to Spark-friendly strings
+            opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
+            opts["recursiveFileLookup"] = "true"
+
+            logger.info(f"   Bronze: {bronze_path}")
+
+            df, rows_in = load_table_data(spark, bronze_path, fmt, opts, logger)
+
     except Exception as e:
         logger.error(f"Failed to load data for table '{name}': {e}", exc_info=True)
         return {
@@ -216,6 +227,7 @@ def process_table(
         "mode": mode,
         "format": fmt,
         "schema_source": resolved.schema_source,
+        "input_source": "dataframe" if df_override is not None else "bronze",
         "bronze_path": bronze_path,
         "silver_path": silver_path,
         "rows_in": rows_in,

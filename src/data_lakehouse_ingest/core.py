@@ -1,14 +1,15 @@
 """
 Core orchestration module for the Data Lakehouse Ingest framework.
 Executes config-driven ingestion from Bronze (raw) to Silver (curated) Delta tables.
-Handles schema enforcement (SQL/LinkML), multi-format loading, and report generation.
+Handles schema enforcement (SQL string or structured list-of-maps), multi-format loading,
+optional DataFrame overrides, and report generation.
 """
 
 import logging
 from typing import Any
 from datetime import datetime, timezone
 from minio import Minio
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 
 from .utils.report_utils import generate_report
 from .logger import safe_log_json
@@ -27,19 +28,22 @@ def ingest(
     spark: SparkSession | None = None,
     logger: logging.Logger | None = None,
     minio_client: Minio | None = None,
+    dataframes: dict[str, DataFrame] | None = None,
 ) -> dict[str, Any]:
     """
     Orchestrates the end-to-end data ingestion process defined by a configuration.
 
     Loads raw (Bronze) data from local or S3/MinIO sources, applies schema enforcement
-    (SQL or LinkML-based), and writes curated (Silver) Delta tables. Generates a
-    structured report summarizing table-level outcomes and errors.
+    (using SQL strings or structured list-of-maps schemas), and writes curated (Silver) Delta tables.
+    Generates a structured report summarizing table-level outcomes and errors.
 
     Args:
         config (str | dict[str, Any]): Path to the config file (local or s3a://) or an inline config dictionary.
         spark (SparkSession, optional): Active Spark session used for reading and writing data.
         logger (logging.Logger, optional): Logger instance for structured logging.
         minio_client (Minio, optional): MinIO client used to read configuration or data from S3-compatible sources.
+        dataframes (dict[str, DataFrame], optional): Optional in-memory DataFrame overrides keyed by table name.
+            When provided, keys must match table names defined in the configuration.
 
     Returns:
         dict[str, Any]: A structured ingestion report containing status, errors, and table-level metrics.
@@ -49,8 +53,10 @@ def ingest(
         - A valid MinIO client is REQUIRED for ingestion.
           If `minio_client` is not provided, `get_minio_client()` is attempted.
           If MinIO cannot be initialized, the pipeline fails immediately.
-        - Supports multiple file formats (CSV, TSV, JSON, XML).
+        - Supports multiple file formats (CSV, TSV, JSON, XML, Parquet).
+        - Schema enforcement supports SQL-style schemas (`schema_sql`) and structured schemas (`schema` list-of-maps).
         - Each table in the configuration is processed independently.
+        - If `dataframes` is provided, it is validated as dict[str, DataFrame] and keys must match configured tables.
     """
     started_at = datetime.now(timezone.utc).isoformat()
 
@@ -137,6 +143,68 @@ def ingest(
     # --- Init run context (tenant, defaults, tables, DB) ---
     ctx = init_run_context(spark, logger, loader)
 
+    # ----------------------------------------------------------------------
+    # Validate DataFrame overrides (if provided)
+    # ----------------------------------------------------------------------
+    """
+    Validate optional DataFrame overrides.
+
+    Ensures `dataframes` is a dict[str, DataFrame] and that all provided
+    table keys exist in the ingestion configuration before processing begins.
+    """
+    if dataframes is not None:
+        if not isinstance(dataframes, dict):
+            return log_error(
+                logger=logger,
+                error_msg=(
+                    "Invalid 'dataframes' argument. "
+                    "Expected dict[str, pyspark.sql.DataFrame], "
+                    f"got {type(dataframes).__name__}."
+                ),
+                phase="dataframe_validation",
+                started_at=started_at,
+            )
+
+        # Validate keys and values
+        for key, value in dataframes.items():
+            if not isinstance(key, str):
+                return log_error(
+                    logger=logger,
+                    error_msg=(
+                        "Invalid key in 'dataframes' argument. "
+                        f"Expected string table name, got {type(key).__name__}."
+                    ),
+                    phase="dataframe_validation",
+                    started_at=started_at,
+                )
+
+            if not isinstance(value, DataFrame):
+                return log_error(
+                    logger=logger,
+                    error_msg=(
+                        f"Invalid value for table '{key}' in 'dataframes'. "
+                        f"Expected pyspark.sql.DataFrame, got {type(value).__name__}."
+                    ),
+                    phase="dataframe_validation",
+                    started_at=started_at,
+                )
+
+        # Optional: validate that provided table names exist in config
+        config_table_names = {t["name"] for t in ctx["tables"]}
+        invalid_keys = set(dataframes.keys()) - config_table_names
+
+        if invalid_keys:
+            return log_error(
+                logger=logger,
+                error_msg=(
+                    "DataFrame override provided for unknown table(s): "
+                    f"{sorted(invalid_keys)}. "
+                    f"Valid tables: {sorted(config_table_names)}."
+                ),
+                phase="dataframe_validation",
+                started_at=started_at,
+            )
+
     # --- Table-level processing ---
     table_reports, error_list = process_tables(
         spark=spark,
@@ -145,6 +213,7 @@ def ingest(
         ctx=ctx,
         started_at=started_at,
         minio_client=minio_client,
+        dataframes=dataframes,
     )
 
     # --- Final report ---
@@ -183,7 +252,7 @@ def log_error(
             Human-readable description of the failure condition.
         phase (str):
             The ingestion phase where the failure occurred
-            (e.g., "spark_initialization", "config_validation", "table_processing").
+            (e.g., "spark_initialization", "config_validation", "dataframe_validation", "table_processing").
         started_at (str):
             ISO-8601 timestamp marking when the ingestion run began.
         exc (Exception | None, optional):

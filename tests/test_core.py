@@ -1,6 +1,7 @@
 import pytest
 import json
 from unittest.mock import MagicMock, patch
+from pyspark.sql import DataFrame
 from data_lakehouse_ingest.core import ingest
 
 
@@ -42,17 +43,71 @@ def mock_logger():
 # ---------------------------------------------------------------------
 # data_lakehouse_ingest_config tests
 # ---------------------------------------------------------------------
-def test_ingest_config_missing_spark(mock_logger):
-    result = ingest(config={}, spark=None, logger=mock_logger)
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_spark_session")
+def test_ingest_autoinit_spark_and_minio_success(
+    mock_get_spark,
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+):
+    mock_get_spark.return_value = MagicMock()
+    mock_get_minio.return_value = MagicMock()
+
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+    mock_process_tables.return_value = ([{"name": "table1", "status": "success"}], [])
+
+    # ConfigLoader should be constructible
+    mock_configloader.return_value = MagicMock()
+
+    result = ingest(config={}, spark=None, logger=MagicMock(), minio_client=None)
+
+    assert result["success"] is True
+    mock_get_spark.assert_called_once()
+    mock_get_minio.assert_called_once()
+
+
+@patch("data_lakehouse_ingest.core.get_spark_session")
+def test_ingest_autoinit_spark_failure(mock_get_spark, mock_logger):
+    mock_get_spark.side_effect = Exception("spark failed")
+
+    result = ingest(config={}, spark=None, logger=mock_logger, minio_client=None)
+
     assert result["success"] is False
     assert "spark_initialization" in json.dumps(result)
 
 
 @patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_spark_session")
+def test_ingest_autoinit_minio_failure(mock_get_spark, mock_get_minio, mock_logger):
+    mock_get_spark.return_value = MagicMock()
+    mock_get_minio.side_effect = Exception("minio failed")
+
+    result = ingest(config={}, spark=None, logger=mock_logger, minio_client=None)
+
+    mock_get_spark.assert_called_once()
+    mock_get_minio.assert_called_once()
+
+    assert result["success"] is False
+    assert "minio_initialization" in json.dumps(result)
+
+
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-def test_ingest_config_configloader_failure(mock_loader, mock_spark, mock_logger):
-    mock_loader.side_effect = Exception("invalid config")
-    result = ingest(config={}, spark=mock_spark, logger=mock_logger)
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_config_configloader_failure(
+    mock_get_minio, mock_configloader, mock_spark, mock_logger
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.side_effect = Exception("invalid config")
+
+    result = ingest(config={}, spark=mock_spark, logger=mock_logger, minio_client=None)
+
     assert result["success"] is False
     assert "config_validation" in json.dumps(result)
 
@@ -102,3 +157,189 @@ def test_ingest_config_valid_json(
     assert result["success"] is True
     assert len(result["tables"]) == 1
     assert result["tables"][0]["status"] == "success"
+
+
+# ---------------------------------------------------------------------
+# Defensive MinIO init branch: get_minio_client returns None without raising
+# ---------------------------------------------------------------------
+
+
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_minio_autoinit_returns_none_triggers_defensive_failure(
+    mock_get_minio,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = None  # no exception, but still invalid
+
+    result = ingest(config={}, spark=mock_spark, logger=mock_logger, minio_client=None)
+
+    assert result["success"] is False
+    assert "minio_initialization" in json.dumps(result)
+    mock_get_minio.assert_called_once()
+
+
+# ---------------------------------------------------------------------
+# DataFrame override validation tests (core.ingest)
+# ---------------------------------------------------------------------
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_dataframes_not_a_dict_returns_validation_error(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+
+    result = ingest(
+        config={},
+        spark=mock_spark,
+        logger=mock_logger,
+        minio_client=None,
+        dataframes=["not-a-dict"],
+    )
+
+    assert result["success"] is False
+    assert "dataframe_validation" in json.dumps(result)
+    mock_process_tables.assert_not_called()
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_dataframes_key_not_string_returns_validation_error(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+
+    df = MagicMock(spec=DataFrame)
+
+    result = ingest(
+        config={},
+        spark=mock_spark,
+        logger=mock_logger,
+        minio_client=None,
+        dataframes={123: df},  # invalid key
+    )
+
+    assert result["success"] is False
+    assert "dataframe_validation" in json.dumps(result)
+    mock_process_tables.assert_not_called()
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_dataframes_value_not_dataframe_returns_validation_error(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+
+    result = ingest(
+        config={},
+        spark=mock_spark,
+        logger=mock_logger,
+        minio_client=None,
+        dataframes={"table1": MagicMock()},  # NOT spec=DataFrame -> should fail isinstance
+    )
+
+    assert result["success"] is False
+    assert "dataframe_validation" in json.dumps(result)
+    mock_process_tables.assert_not_called()
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_dataframes_unknown_table_name_returns_validation_error(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+
+    # Config has only table1
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+
+    df = MagicMock(spec=DataFrame)
+
+    result = ingest(
+        config={},
+        spark=mock_spark,
+        logger=mock_logger,
+        minio_client=None,
+        dataframes={"table2": df},  # not in ctx["tables"]
+    )
+
+    assert result["success"] is False
+    assert "dataframe_validation" in json.dumps(result)
+    mock_process_tables.assert_not_called()
+
+
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_minio_client")
+def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}, {"name": "table2"}]}
+    mock_process_tables.return_value = (
+        [{"name": "table1", "status": "success"}, {"name": "table2", "status": "success"}],
+        [],
+    )
+
+    df1 = MagicMock(spec=DataFrame)
+    df2 = MagicMock(spec=DataFrame)
+    overrides = {"table1": df1, "table2": df2}
+
+    result = ingest(
+        config={},
+        spark=mock_spark,
+        logger=mock_logger,
+        minio_client=None,
+        dataframes=overrides,
+    )
+
+    assert result["success"] is True
+    mock_process_tables.assert_called_once()
+    # Verify the overrides dict is passed through unchanged
+    assert mock_process_tables.call_args.kwargs["dataframes"] is overrides

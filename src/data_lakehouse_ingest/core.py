@@ -165,33 +165,33 @@ def ingest(
                 started_at=started_at,
             )
 
-        # Validate keys and values
+        # Validate keys and values (accumulate errors)
+        df_errors: list[str] = []
+
         for key, value in dataframes.items():
             if not isinstance(key, str):
-                return log_error(
-                    logger=logger,
-                    error_msg=(
-                        "Invalid key in 'dataframes' argument. "
-                        f"Expected string table name, got {type(key).__name__}."
-                    ),
-                    phase="dataframe_validation",
-                    started_at=started_at,
+                df_errors.append(
+                    f"Invalid key in 'dataframes': expected str table name, got {type(key).__name__} ({key!r})."
                 )
+                # If key isn't str, avoid using it in other messages safely
+                continue
 
             if not isinstance(value, DataFrame):
-                return log_error(
-                    logger=logger,
-                    error_msg=(
-                        f"Invalid value for table '{key}' in 'dataframes'. "
-                        f"Expected pyspark.sql.DataFrame, got {type(value).__name__}."
-                    ),
-                    phase="dataframe_validation",
-                    started_at=started_at,
+                df_errors.append(
+                    f"Invalid value for table '{key}' in 'dataframes': expected pyspark.sql.DataFrame, got {type(value).__name__}."
                 )
 
-        # Optional: validate that provided table names exist in config
+        if df_errors:
+            return log_error(
+                logger=logger,
+                error_msg="DataFrame override validation failed:\n- " + "\n- ".join(df_errors),
+                phase="dataframe_validation",
+                started_at=started_at,
+            )
+
+        # validate that provided table names exist in config
         config_table_names = {t["name"] for t in ctx["tables"]}
-        invalid_keys = set(dataframes.keys()) - config_table_names
+        invalid_keys = {k for k in dataframes.keys() if isinstance(k, str)} - config_table_names
 
         if invalid_keys:
             return log_error(

@@ -22,7 +22,7 @@ from typing import Any
 from .error_utils import error_entry_for_exception
 from .table_processor import process_table
 import logging
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 from minio import Minio
 
 
@@ -33,6 +33,7 @@ def process_tables(
     ctx: dict,
     started_at: str,
     minio_client: Minio | None = None,
+    dataframes: dict[str, DataFrame] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Process all tables defined in the ingestion context.
@@ -42,6 +43,11 @@ def process_tables(
     level ingestion work to `process_table()`. All exceptions raised during
     table processing are captured and converted into standardized error
     entries using `error_entry_for_exception()`.
+
+    Optionally supports DataFrame overrides for individual tables. When
+    provided, a DataFrame mapped to the table's name is passed to
+    `process_table()` instead of reading the table from the configured
+    Bronze source.
 
     Args:
         spark (SparkSession):
@@ -59,6 +65,11 @@ def process_tables(
         minio_client (Minio | None, optional):
             MinIO client used for reading data from S3-compatible sources.
             Passed through to `process_table()`.
+        dataframes (dict[str, DataFrame] | None, optional):
+            Optional mapping of table names to pre-loaded Spark DataFrames.
+            If a table name exists in this dictionary, the corresponding
+            DataFrame will be passed to `process_table()` as an override
+            (`df_override`) instead of loading the table from Bronze storage.
 
     Returns:
         tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -71,6 +82,11 @@ def process_tables(
     Notes:
         - Each table is processed independently; a failure in one table does
           not prevent others from being ingested.
+        - When `dataframes` is provided, the DataFrame associated with the
+          table name will override the default data-loading behavior in
+          `process_table()`.
+        - DataFrame overrides enable notebook-based ingestion, testing, or
+          upstream pipelines that already produce Spark DataFrames.
         - The returned lists are used by the top-level orchestrator to build
           the final ingestion run report.
     """
@@ -88,6 +104,7 @@ def process_tables(
                 table=table,
                 run_started_at_iso=started_at,
                 minio_client=minio_client,
+                df_override=(dataframes or {}).get(table.get("name", "")),
             )
             table_reports.append(report_row)
         except Exception as e:

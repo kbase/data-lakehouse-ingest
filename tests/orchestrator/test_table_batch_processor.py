@@ -86,3 +86,199 @@ def test_process_tables_with_exception():
 
     # Ensure error_entry_for_exception was used
     mock_error_entry.assert_called_once()
+
+
+def test_process_tables_passes_df_override_when_present():
+    """
+    If dataframes are provided and the table name matches, process_tables should pass
+    the matching dataframe via df_override to process_table().
+    """
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    df1 = MagicMock(name="df_table1")
+    df2 = MagicMock(name="df_table2")
+
+    ctx = {"tables": [{"name": "table1"}, {"name": "table2"}]}
+    started_at = "2025-01-01T00:00:00Z"
+    dataframes = {"table1": df1, "table2": df2}
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        side_effect=[{"status": "success"}, {"status": "success"}],
+    ) as mock_process_table:
+        process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+            dataframes=dataframes,
+        )
+
+    # Validate each call got the correct df_override
+    first_call_kwargs = mock_process_table.call_args_list[0].kwargs
+    second_call_kwargs = mock_process_table.call_args_list[1].kwargs
+
+    assert first_call_kwargs["df_override"] is df1
+    assert second_call_kwargs["df_override"] is df2
+
+
+def test_process_tables_df_override_none_when_missing_or_no_dataframes():
+    """
+    If dataframes are not provided OR table name doesn't exist in dataframes,
+    df_override should be None.
+    """
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"name": "table1"}]}
+    started_at = "2025-01-01T00:00:00Z"
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value={"status": "success"},
+    ) as mock_process_table:
+        process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+            dataframes=None,  # explicit
+        )
+
+    kwargs = mock_process_table.call_args.kwargs
+    assert kwargs["df_override"] is None
+
+    # Now: table name not found in dataframes dict
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value={"status": "success"},
+    ) as mock_process_table2:
+        process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+            dataframes={"other_table": MagicMock()},
+        )
+
+    kwargs2 = mock_process_table2.call_args.kwargs
+    assert kwargs2["df_override"] is None
+
+
+def test_process_tables_table_without_name_does_not_crash_df_lookup():
+    """
+    If a table dict has no 'name', the code uses default "" for lookup.
+    Ensure it still calls process_table and passes df_override correctly (None unless "" exists).
+    """
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"format": "csv"}]}  # no name
+    started_at = "2025-01-01T00:00:00Z"
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value={"status": "success"},
+    ) as mock_process_table:
+        process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+            dataframes={"table1": MagicMock()},
+        )
+
+    kwargs = mock_process_table.call_args.kwargs
+    assert kwargs["df_override"] is None
+
+
+def test_process_tables_continues_after_one_table_fails():
+    """
+    Ensure one failing table does not prevent subsequent tables from processing.
+    Also validates error_entry_for_exception is called for the failing one.
+    """
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"name": "bad"}, {"name": "good"}]}
+    started_at = "2025-01-01T00:00:00Z"
+
+    good_report = {"status": "success", "table": "good"}
+    bad_error_entry = {"status": "error", "table": "bad", "error": "boom"}
+
+    def side_effect(*args, **kwargs):
+        if kwargs["table"]["name"] == "bad":
+            raise Exception("boom")
+        return good_report
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        side_effect=side_effect,
+    ) as mock_process_table:
+        with patch(
+            "data_lakehouse_ingest.orchestrator.table_batch_processor.error_entry_for_exception",
+            return_value=bad_error_entry,
+        ) as mock_err:
+            table_reports, error_list = process_tables(
+                spark=spark,
+                logger=logger,
+                loader=loader,
+                ctx=ctx,
+                started_at=started_at,
+                minio_client=minio_client,
+            )
+
+    # bad -> error entry, good -> success
+    assert table_reports == [bad_error_entry, good_report]
+    assert error_list == [bad_error_entry]
+
+    assert mock_process_table.call_count == 2
+    mock_err.assert_called_once()  # error entry only for the failing table
+
+
+def test_process_tables_passes_through_required_context_fields():
+    """
+    Verifies process_tables passes ctx and started_at through correctly to process_table.
+    """
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"name": "table1"}], "pipeline": "p1"}
+    started_at = "2025-01-01T00:00:00Z"
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value={"status": "success"},
+    ) as mock_process_table:
+        process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+        )
+
+    kwargs = mock_process_table.call_args.kwargs
+    assert kwargs["ctx"] is ctx
+    assert kwargs["run_started_at_iso"] == started_at
+    assert kwargs["minio_client"] is minio_client

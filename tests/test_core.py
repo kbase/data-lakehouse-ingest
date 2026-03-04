@@ -44,6 +44,7 @@ def mock_logger():
 # data_lakehouse_ingest_config tests
 # ---------------------------------------------------------------------
 
+
 # Test that ingest() automatically initializes Spark and MinIO when both are None
 # and successfully proceeds to process tables.
 @patch("data_lakehouse_ingest.core.init_run_context")
@@ -191,6 +192,7 @@ def test_ingest_minio_autoinit_returns_none_triggers_defensive_failure(
 # ---------------------------------------------------------------------
 # DataFrame override validation tests (core.ingest)
 # ---------------------------------------------------------------------
+
 
 # Test multiple invalid `dataframes` override cases using parameterization to ensure proper dataframe_validation errors.
 @pytest.mark.parametrize(

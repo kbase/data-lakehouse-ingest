@@ -607,5 +607,3 @@ def test_process_table_reports_dropped_columns(
     )
 
     assert result["extra_columns_dropped"] == ["colA", "colB"]
-
-

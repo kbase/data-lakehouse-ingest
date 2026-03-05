@@ -4,8 +4,8 @@ Purpose:
     the Data Lakehouse Ingest framework.
 
     The `process_table()` function orchestrates:
-      - Schema resolution (using LinkML or SQL schemas)
-      - Data loading from the Bronze layer (via Spark)
+      - Schema resolution (using SQL schema strings, structured column definitions, or DataFrame schemas)
+      - Data loading either from the Bronze layer (via Spark) or from a provided DataFrame
       - Schema application and column alignment
       - Writing curated data to the Silver layer in Delta format
 """
@@ -43,9 +43,9 @@ def process_table(
     Ingest a single table from the Bronze layer into the Silver Delta layer.
 
     This function handles both standard and specialized ingestion workflows:
-    - Determines file format (CSV, TSV, JSON, XML, etc.)
-    - Resolves the applicable schema using LinkML or SQL sources
-    - Loads data from the Bronze path via Spark
+    - Determines file format (CSV, TSV, JSON, XML, Parquet, etc.) when reading from Bronze storage
+    - Resolves the applicable schema using SQL schema strings, structured column definitions, or DataFrame schemas
+    - Loads data either from the Bronze path via Spark or from a provided DataFrame override
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
     - Applies Delta column comments when a structured (list-of-maps) schema is used
@@ -83,6 +83,11 @@ def process_table(
         minio_client (Minio | None, optional):
             Optional MinIO client for reading schema or metadata when required.
 
+        df_override (DataFrame | None, optional):
+            Optional Spark DataFrame to ingest instead of loading from the Bronze path.
+            When provided, the Bronze read path is skipped, `bronze_path` is reported as
+            "<dataframe>", and `format` is taken from `table["format"]` if present,
+            otherwise "<dataframe>".
 
     Returns:
         dict[str, Any]:

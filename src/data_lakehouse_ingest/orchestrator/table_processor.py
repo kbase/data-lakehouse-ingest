@@ -7,7 +7,7 @@ Purpose:
       - Schema resolution (using LinkML or SQL schemas)
       - Data loading from the Bronze layer (via Spark)
       - Schema application and column alignment
-      - Writing curated data to the Silver layer in Delta format
+      - Writing curated data to the Silver layer via Iceberg catalogs
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from data_lakehouse_ingest.orchestrator.schema_utils import (
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
-    write_to_delta,
+    write_table,
 )
 from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
@@ -39,15 +39,15 @@ def process_table(
     minio_client: Minio | None = None,
 ) -> dict[str, Any]:
     """
-    Ingest a single table from the Bronze layer into the Silver Delta layer.
+    Ingest a single table from the Bronze layer into the Silver layer.
 
     This function handles both standard and specialized ingestion workflows:
     - Determines file format (CSV, TSV, JSON, XML, etc.)
     - Resolves the applicable schema using LinkML or SQL sources
     - Loads data from the Bronze path via Spark
     - Applies schema alignment and column cleanup
-    - Writes the processed DataFrame to the Silver Delta location
-    - Applies Delta column comments when a structured (list-of-maps) schema is used
+    - Writes the processed DataFrame via catalog-driven APIs (Iceberg)
+    - Applies column comments when a structured (list-of-maps) schema is used
     - Returns a structured report entry summarizing ingestion results
 
     Column comments are applied when a structured schema with comments metadata is available.
@@ -60,13 +60,12 @@ def process_table(
             Structured logger instance with contextual metadata (pipeline, schema, table).
 
         loader (Any):
-            Loader object that provides methods like `get_bronze_path()` and `get_silver_path()`.
+            Loader object that provides methods like `get_bronze_path()`.
 
         ctx (dict[str, Any]):
             Execution context containing keys such as:
                 - "tenant": Tenant identifier
-                - "namespace": Fully qualified namespace for the Delta tables
-                - "namespace_base_path": Base path under which Silver tables will be written
+                - "namespace": Fully qualified namespace (e.g., ``kbase.ke_pangenome``)
 
         table (dict):
             Table configuration dictionary containing keys such as:
@@ -82,12 +81,11 @@ def process_table(
         minio_client (Minio | None, optional):
             Optional MinIO client for reading schema or metadata when required.
 
-
     Returns:
         dict[str, Any]:
             A structured dictionary summarizing the ingestion outcome, including:
                 - "name", "tenant", "target_table"
-                - "bronze_path", "silver_path"
+                - "bronze_path"
                 - "rows_in", "rows_written", "elapsed_sec"
                 - "comments_report": result of applying column comments, or None if not applicable
                 - "status": "success" or "failed"
@@ -103,7 +101,7 @@ def process_table(
         ...     spark=spark,
         ...     logger=logger,
         ...     loader=loader,
-        ...     tenant="tenant_alpha",
+        ...     ctx={"tenant": "kbase", "namespace": "kbase.ke_pangenome"},
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
@@ -120,13 +118,10 @@ def process_table(
 
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
-    namespace_base_path = ctx["namespace_base_path"]
 
     name = table["name"]
     bronze_path = loader.get_bronze_path(name)
-    silver_path = namespace_base_path
 
-    # Regular CSV/TSV/JSON/XML path
     start_table_time = datetime.now(timezone.utc)
 
     # --- Determine format ---
@@ -148,7 +143,7 @@ def process_table(
     opts["recursiveFileLookup"] = "true"
 
     logger.info(f"   Bronze: {bronze_path}")
-    logger.info(f"   Silver: {silver_path}")
+    logger.info(f"   Target: {namespace}.{name}")
 
     # --- Load data ---
     try:
@@ -173,22 +168,20 @@ def process_table(
 
     dropped_cols = schema_meta.get("dropped_columns", [])
 
-    # --- Write to Delta ---
+    # --- Write table via catalog ---
     partition_by = table.get("partition_by")
     mode = table.get("mode", "overwrite")
-    rows_written = write_to_delta(
+    rows_written = write_table(
         df=df,
         spark=spark,
         namespace=namespace,
-        namespace_base_path=namespace_base_path,
         name=name,
-        silver_path=silver_path,
         partition_by=partition_by,
         mode=mode,
         logger=logger,
     )
 
-    # Applies Delta column comments when comment metadata is available (from structured schema)
+    # Applies column comments when comment metadata is available (from structured schema)
     comments_report = None
 
     if resolved.comment_metadata:
@@ -202,9 +195,6 @@ def process_table(
         )
         logger.info(f"Column comment apply report: {comments_report}")
 
-    rows_rejected = 0
-    partitions_written = None
-    quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
     logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
@@ -217,13 +207,9 @@ def process_table(
         "format": fmt,
         "schema_source": resolved.schema_source,
         "bronze_path": bronze_path,
-        "silver_path": silver_path,
         "rows_in": rows_in,
         "rows_written": rows_written,
-        "rows_rejected": rows_rejected,
         "extra_columns_dropped": dropped_cols,
-        "partitions_written": partitions_written,
-        "quarantine_path": quarantine_path,
         "elapsed_sec": elapsed_sec,
         "status": "success",
         "comments_report": comments_report,

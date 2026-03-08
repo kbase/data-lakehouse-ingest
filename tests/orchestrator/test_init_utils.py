@@ -8,18 +8,12 @@ def test_init_logger_creates_default_logger():
     assert isinstance(logger, logging.Logger)
 
 
-def test_init_run_context_creates_tenant_and_tables():
+def test_init_run_context_creates_tenant_namespace_with_iceberg():
     from data_lakehouse_ingest.orchestrator import init_utils
 
-    init_utils.create_namespace_if_not_exists = MagicMock(return_value="demo_dataset")
+    init_utils.create_namespace_if_not_exists = MagicMock(return_value="demo_tenant.demo_dataset")
 
-    # Mock Spark
     mock_spark = MagicMock()
-    mock_spark.sql.return_value.collect.return_value = [
-        MagicMock(info_name="location", info_value="s3a://dummy-path")
-    ]
-    mock_spark.catalog.setCurrentDatabase = MagicMock()
-
     mock_loader = MagicMock()
     mock_loader.config = {
         "tenant": "demo_tenant",
@@ -28,16 +22,45 @@ def test_init_run_context_creates_tenant_and_tables():
     mock_loader.get_tables.return_value = [{"name": "table1"}]
     mock_logger = MagicMock()
 
-    # Run function
     ctx = init_run_context(mock_spark, mock_logger, mock_loader)
 
-    # Validate context
     assert ctx["tenant"] == "demo_tenant"
     assert ctx["dataset"] == "demo_dataset"
-    assert ctx["namespace"] == "demo_dataset"
+    assert ctx["namespace"] == "demo_tenant.demo_dataset"
     assert ctx["tables"] == [{"name": "table1"}]
-    assert ctx["namespace_base_path"] == "s3a://dummy-path"
+    assert "namespace_base_path" not in ctx
 
-    # Validate side effects
-    init_utils.create_namespace_if_not_exists.assert_called_once()
-    mock_spark.catalog.setCurrentDatabase.assert_called_once_with("demo_dataset")
+    init_utils.create_namespace_if_not_exists.assert_called_once_with(
+        mock_spark,
+        namespace="demo_dataset",
+        tenant_name="demo_tenant",
+        iceberg=True,
+    )
+    mock_spark.sql.assert_any_call("USE demo_tenant.demo_dataset")
+
+
+def test_init_run_context_creates_personal_namespace_with_iceberg():
+    from data_lakehouse_ingest.orchestrator import init_utils
+
+    init_utils.create_namespace_if_not_exists = MagicMock(return_value="my.demo_dataset")
+
+    mock_spark = MagicMock()
+    mock_loader = MagicMock()
+    mock_loader.config = {
+        "tenant": None,
+        "dataset": "demo_dataset",
+    }
+    mock_loader.get_tables.return_value = [{"name": "table1"}]
+    mock_logger = MagicMock()
+
+    ctx = init_run_context(mock_spark, mock_logger, mock_loader)
+
+    assert ctx["tenant"] is None
+    assert ctx["namespace"] == "my.demo_dataset"
+
+    init_utils.create_namespace_if_not_exists.assert_called_once_with(
+        mock_spark,
+        "demo_dataset",
+        iceberg=True,
+    )
+    mock_spark.sql.assert_any_call("USE my.demo_dataset")

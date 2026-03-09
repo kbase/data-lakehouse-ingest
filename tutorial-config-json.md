@@ -148,13 +148,13 @@ This prevents repeating reader options for every table.
 
 Supported formats include:
 
-| Format  |
-| ------- |
-| CSV     |
-| TSV     |
-| JSON    |
-| XML     |
-| Parquet |
+| Format  | Description                                   |
+|---------|-----------------------------------------------|
+| CSV     | Comma-separated flat files                   |
+| TSV     | Tab-separated flat files                     |
+| JSON    | Standard JSON records                        |
+| XML     | Structured XML files                         |
+| Parquet | Columnar storage format optimized for Spark  |
 
 <br>
 <br>
@@ -176,8 +176,6 @@ Example:
   "bronze_path": "prefix.tsv"
 }
 ```
-
-You can make the table clearer by adding a **Required / Optional column** and mentioning the defaults in the description. Here is a clean Markdown version you can drop directly into your tutorial.
 
 ### Table Properties
 

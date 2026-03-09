@@ -62,7 +62,7 @@ The `tenant` field determines where the Delta tables are created.
 
 This creates tables in:
 
-```
+```text
 globalusers.ontology_test1.table_name
 ```
 
@@ -270,7 +270,7 @@ Supported data types include:
 
 ### Primitive Types
 
-```
+```text
 STRING
 INT
 INTEGER
@@ -285,7 +285,7 @@ TIMESTAMP
 
 ### Complex Types
 
-```
+```text
 ARRAY
 ```
 <br>

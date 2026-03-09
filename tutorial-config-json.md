@@ -20,7 +20,7 @@ This tutorial explains how to create a **valid configuration JSON file** step by
 
 A minimal configuration JSON contains the following keys:
 
-```
+```json
 {
   "tenant": "tenant_name",
   "dataset": "dataset_name",
@@ -55,7 +55,7 @@ The `tenant` field determines where the Delta tables are created.
 
 ### Example
 
-```
+```json
 "tenant": "globalusers",
 "dataset": "ontology_test1"
 ```
@@ -72,18 +72,32 @@ If the `tenant` field is **not provided**, the framework automatically uses a **
 
 Example:
 
-```
-dataset = ontology_test1
-username = akhan
+Example configuration:
+
+```json
+  "dataset": "ontology_test1"
 ```
 
-Tables will be written to:
+If the current user is `akhan`, the resulting table location will be:
 
-```
+```text
 u_akhan__ontology_test1.table_name
 ```
 
-This allows users to experiment safely without modifying shared datasets.
+Here:
+
+* `akhan` is the username retrieved from the MinIO client session
+
+* `ontology_test1` is the dataset defined in the configuration JSON
+
+The namespace `u_akhan__ontology_test1` is therefore automatically constructed as:
+
+```text
+u_<username>__<dataset>
+```
+
+This personal namespace allows users to run ingestion jobs and experiment with datasets without modifying shared tenant namespaces.
+
 
 <br>
 <br>
@@ -96,7 +110,7 @@ The `paths` section allows you to define reusable storage locations.
 
 Example:
 
-```
+```json
 "paths": {
   "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/bronze"
 }
@@ -120,7 +134,7 @@ You can define default Spark reader options for specific formats.
 
 Example:
 
-```
+```json
 "defaults": {
   "tsv": {
     "header": true,
@@ -153,7 +167,7 @@ Each entry in the `tables` list defines one table to ingest.
 
 Example:
 
-```
+```json
 {
   "name": "prefix",
   "enabled": true,
@@ -225,7 +239,7 @@ The `enabled` flag allows selective ingestion.
 
 Example:
 
-```
+```json
 "enabled": false
 ```
 
@@ -248,7 +262,7 @@ The simplest way to define a schema is with `schema_sql`.
 
 Example:
 
-```
+```json
 "schema_sql": "subject STRING, predicate STRING, object STRING"
 ```
 
@@ -286,7 +300,7 @@ For richer metadata, use the `schema` field instead of `schema_sql`.
 
 Example:
 
-```
+```json
 "schema": [
   {
     "column": "prefix",
@@ -331,13 +345,13 @@ Example schema definition:
 
 If the source file contains additional columns such as:
 
-```
+```text
 subject, predicate, object, created_at, source_system
 ```
 
 Only the following columns will be written to the Delta table:
 
-```
+```text
 subject, predicate, object
 ```
 
@@ -357,19 +371,19 @@ This behavior applies whether the schema is defined using:
 
 Default write mode is:
 
-```
+```text
 overwrite
 ```
 
 To append data instead:
 
-```
+```json
 "mode": "append"
 ```
 
 Example:
 
-```
+```json
 {
   "name": "prefix",
   "mode": "append"
@@ -387,7 +401,7 @@ If `bronze_base` is defined, it can be reused in table paths.
 
 Example:
 
-```
+```json
 "bronze_path": "${bronze_base}/prefix.tsv"
 ```
 
@@ -404,7 +418,7 @@ If all files are located in the `bronze_base` directory, the path can be simplif
 
 Example:
 
-```
+```json
 "bronze_path": "statements.tsv"
 ```
 
@@ -421,7 +435,7 @@ Wildcards can be used when ingesting multiple files or folders.
 
 Example:
 
-```
+```json
 "bronze_path": "s3a://cdm-lake/bronze/run_*/prefix*.tsv"
 ```
 
@@ -438,7 +452,7 @@ This allows ingestion from:
 
 # 14. Full Example Configuration
 
-```
+```json
 {
   "tenant": "globalusers",
   "dataset": "ontology_test1",
@@ -528,7 +542,7 @@ In production pipelines, the configuration JSON is typically stored in the **Bro
 
 Example location:
 
-```
+```text
 s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/config-json/ontology_config.json
 ```
 

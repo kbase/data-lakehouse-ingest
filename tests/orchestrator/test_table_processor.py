@@ -54,9 +54,9 @@ def table_config():
     "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
     side_effect=lambda df, **_: (df, {"dropped_columns": []}),
 )
-@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_table", return_value=95)
 def test_process_table_success(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -69,7 +69,6 @@ def test_process_table_success(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
     result = process_table(
         spark=mock_spark,
@@ -90,7 +89,7 @@ def test_process_table_success(
     mock_resolve_schema.assert_called_once()
     mock_load_data.assert_called_once()
     mock_apply_schema.assert_called_once()
-    mock_write_to_delta.assert_called_once()
+    mock_write_table.assert_called_once()
     mock_logger.info.assert_any_call("Processing table: test_table")
 
 
@@ -118,9 +117,9 @@ def test_process_table_success(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
     side_effect=lambda df, **_: (df, {"dropped_columns": []}),
 )
-@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_table", return_value=95)
 def test_process_table_applies_delta_comments_for_structured_schema(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -134,7 +133,6 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     table_with_schema = {
@@ -185,9 +183,9 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
     side_effect=lambda df, **_: (df, {"dropped_columns": []}),
 )
-@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_table", return_value=95)
 def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -201,7 +199,6 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
     result = process_table(
         spark=mock_spark,
@@ -232,7 +229,6 @@ def test_process_table_data_load_failure(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
     result = process_table(
         spark=mock_spark,
@@ -269,9 +265,9 @@ def test_process_table_data_load_failure(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
     side_effect=lambda df, **_: (df, {"dropped_columns": []}),
 )
-@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_table", return_value=95)
 def test_process_table_sets_logger_table_context_when_context_filter_present(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -287,7 +283,6 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(
@@ -325,9 +320,9 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
     side_effect=lambda df, **_: (df, {"dropped_columns": []}),
 )
-@patch("data_lakehouse_ingest.orchestrator.table_processor.write_to_delta", return_value=95)
+@patch("data_lakehouse_ingest.orchestrator.table_processor.write_table", return_value=95)
 def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defaults_for(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -349,7 +344,6 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(

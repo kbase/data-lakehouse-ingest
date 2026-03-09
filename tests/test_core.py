@@ -19,19 +19,6 @@ def mock_spark():
     mock_df.count.return_value = 5
     spark.read.option.return_value.options.return_value.json.return_value = mock_df
 
-    # --- Mock DESCRIBE NAMESPACE EXTENDED ---
-    fake_row = MagicMock()
-    fake_row.info_name = "location"
-    fake_row.info_value = "s3a://bucket/silver/"  # MUST NOT be None
-
-    fake_result_df = MagicMock()
-    fake_result_df.collect.return_value = [fake_row]
-
-    spark.sql.return_value = fake_result_df
-
-    # --- Prevent failures in setCurrentDatabase ---
-    spark.catalog.setCurrentDatabase.return_value = None
-
     return spark
 
 

@@ -70,12 +70,12 @@ globalusers.ontology_test1.table_name
 
 If the `tenant` field is **not provided**, the framework automatically uses a **personal namespace**.
 
-Example:
-
 Example configuration:
 
 ```json
+{
   "dataset": "ontology_test1"
+}
 ```
 
 If the current user is `akhan`, the resulting table location will be:
@@ -155,6 +155,49 @@ Supported formats include:
 | JSON    | Standard JSON records                        |
 | XML     | Structured XML files                         |
 | Parquet | Columnar storage format optimized for Spark  |
+
+### Handling Complex CSV Records
+
+Some datasets may contain fields with embedded commas, quotes, or multi-line text.  
+In these cases, additional Spark CSV reader options can be specified in the `defaults` section.
+
+For example, consider the following CSV record:
+
+```text
+ID001,"This record contains a long description, including commas, quotes like ""example"", and
+multiple lines of text that should remain part of the same column."
+```
+This record should be parsed into two columns:
+
+| Column   | Value                              |
+| -------- | ---------------------------------- |
+| Column 1 | `ID001`                            |
+| Column 2 | the entire quoted description text |
+
+Without proper CSV parsing options, Spark may incorrectly split the second column into multiple columns or treat line breaks as new rows.
+
+You can resolve this by defining additional Spark CSV parsing options in the `defaults` section:
+```json
+"defaults": {
+  "csv": {
+    "header": true,
+    "delimiter": ",",
+    "inferSchema": false,
+    "quote": "\"",
+    "escape": "\"",
+    "escapeQuotes": true,
+    "multiLine": true
+  }
+}
+```
+
+These options instruct Spark to:
+* correctly handle quoted fields
+* escape embedded quotes
+* support multi-line records
+* treat the entire quoted section as a single column
+
+By defining these options in defaults, they automatically apply to all tables using the csv format unless overridden in a specific table configuration. This makes it easier to configure complex parsing behavior once, rather than repeating the same Spark reader options for every table definition.
 
 <br>
 <br>
@@ -318,7 +361,6 @@ Example:
 Advantages of structured schema:
 
 * column comments
-* nullability control
 * richer metadata
 * AI-readiness for data catalogs
 
@@ -355,10 +397,7 @@ subject, predicate, object
 
 The extra columns (`created_at`, `source_system`) will be **automatically removed during ingestion**.
 
-This behavior applies whether the schema is defined using:
-
-* `schema_sql`
-* `schema` (structured schema with metadata)
+This behavior applies whether the schema is defined using `schema_sql` or `schema` (structured schema with metadata).
 
 <br>
 <br>

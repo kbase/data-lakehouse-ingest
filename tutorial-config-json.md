@@ -96,7 +96,7 @@ The namespace `u_akhan__ontology_test1` is therefore automatically constructed a
 u_<username>__<dataset>
 ```
 
-This personal namespace allows users to run ingestion jobs and experiment with datasets without modifying shared tenant namespaces.
+This personal namespace allows users to run ingestion jobs and experiment with datasets without modifying datasets in shared tenant environments.
 
 
 <br>
@@ -556,6 +556,9 @@ You can define the configuration directly in a Python variable.
 cfg = """
 {
   "dataset": "ontology_test1",
+  "paths": {
+    "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/bronze/run_20250819_020438/tsv_tables"
+  },
   "tables": [
     {
       "name": "prefix",

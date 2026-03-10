@@ -147,9 +147,9 @@ def process_table(
         if df_override is not None:
             df = df_override
             rows_in = df.count()
-            bronze_path = "<dataframe>"
-            fmt = table.get("format") or "<dataframe>"
-            logger.info(f"   Bronze: {bronze_path} (override)")
+            bronze_path = None
+            fmt = None
+            logger.info("   Bronze: <dataframe override>")
         else:
             bronze_path = loader.get_bronze_path(name)
             fmt = detect_format(bronze_path, table.get("format"))

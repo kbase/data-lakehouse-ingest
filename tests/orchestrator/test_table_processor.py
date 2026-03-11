@@ -82,11 +82,11 @@ def test_process_table_success(
     )
 
     # Assertions
-    assert result["status"] == "success"
-    assert result["target_table"] == "tenant_alpha__dataset.test_table"
-    assert result["rows_in"] == 100
-    assert result["rows_written"] == 95
-    assert "elapsed_sec" in result
+    assert result.status == "success"
+    assert result.target_table == "tenant_alpha__dataset.test_table"
+    assert result.rows_in == 100
+    assert result.rows_written == 95
+    assert isinstance(result.elapsed_sec, float)
     mock_detect_format.assert_called_once()
     mock_resolve_schema.assert_called_once()
     mock_load_data.assert_called_once()
@@ -153,9 +153,9 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["status"] == "success"
-    assert result["target_table"] == "tenant_alpha__dataset.test_table"
-    assert result["comments_report"] == {"applied": 1, "skipped": 0, "missing_in_table": []}
+    assert result.status == "success"
+    assert result.target_table == "tenant_alpha__dataset.test_table"
+    assert result.comments_report == {"applied": 1, "skipped": 0, "missing_in_table": []}
 
     mock_apply_comments.assert_called_once()
     _, kwargs = mock_apply_comments.call_args
@@ -215,9 +215,9 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["status"] == "success"
-    assert result["target_table"] == "tenant_alpha__dataset.test_table"
-    assert result["comments_report"] is None
+    assert result.status == "success"
+    assert result.target_table == "tenant_alpha__dataset.test_table"
+    assert result.comments_report is None
     mock_apply_comments.assert_not_called()
 
 
@@ -247,9 +247,9 @@ def test_process_table_data_load_failure(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["status"] == "failed"
-    assert result["phase"] == "data_loading"
-    assert "Simulated load failure" in result["error"]
+    assert result.status == "failed"
+    assert result.phase == "data_loading"
+    assert "Simulated load failure" in result.error
     mock_logger.error.assert_called_once()
 
 
@@ -304,8 +304,8 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["status"] == "success"
-    assert result["target_table"] == "tenant_alpha__dataset.test_table"
+    assert result.status == "success"
+    assert result.target_table == "tenant_alpha__dataset.test_table"
     mock_logger.context_filter.set_table.assert_called_once_with("test_table")
 
 
@@ -367,8 +367,8 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["status"] == "success"
-    assert result["target_table"] == "tenant_alpha__dataset.test_table"
+    assert result.status == "success"
+    assert result.target_table == "tenant_alpha__dataset.test_table"
 
     # Assert fallback delimiter for TSV was used
     _, args, _ = mock_load_data.mock_calls[0]
@@ -429,11 +429,11 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         df_override=df_override,
     )
 
-    assert result["status"] == "success"
-    assert result["input_source"] == "dataframe"
-    assert result["bronze_path"] == "<dataframe>"
-    assert result["rows_in"] == 123
-    assert result["rows_written"] == 10
+    assert result.status == "success"
+    assert result.input_source == "dataframe"
+    assert result.bronze_path is None
+    assert result.rows_in == 123
+    assert result.rows_written == 10
 
     # No bronze-path loading should happen
     mock_loader.get_bronze_path.assert_not_called()
@@ -489,7 +489,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
         run_started_at_iso="2025-10-31T12:00:00Z",
         df_override=df_override,
     )
-    assert result_a["format"] == "csv"
+    assert result_a.format is None
 
     # Case B: format missing -> "<dataframe>"
     result_b = process_table(
@@ -501,7 +501,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
         run_started_at_iso="2025-10-31T12:00:00Z",
         df_override=df_override,
     )
-    assert result_b["format"] == "<dataframe>"
+    assert result_b.format is None
 
 
 # ---------------------------------------------------------------------
@@ -553,9 +553,9 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
         df_override=df_override,
     )
 
-    assert result["status"] == "success"
-    assert result["input_source"] == "dataframe"
-    assert result["comments_report"] == {"applied": 1, "skipped": 0, "missing_in_table": []}
+    assert result.status == "success"
+    assert result.input_source == "dataframe"
+    assert result.comments_report == {"applied": 1, "skipped": 0, "missing_in_table": []}
     mock_apply_comments.assert_called_once()
 
 
@@ -606,4 +606,4 @@ def test_process_table_reports_dropped_columns(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result["extra_columns_dropped"] == ["colA", "colB"]
+    assert result.extra_columns_dropped == ["colA", "colB"]

@@ -28,6 +28,8 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
 )
 from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
+from .models import TableProcessSuccess, TableProcessFailure, TableProcessResult
+
 
 def process_table(
     spark: SparkSession,
@@ -38,7 +40,7 @@ def process_table(
     run_started_at_iso: str,
     minio_client: Minio | None = None,
     df_override: DataFrame | None = None,
-) -> dict[str, Any]:
+) -> TableProcessResult:
     """
     Ingest a single table from the Bronze layer into the Silver Delta layer.
 
@@ -49,7 +51,7 @@ def process_table(
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
     - Applies Delta column comments when a structured (list-of-maps) schema is used
-    - Returns a structured report entry summarizing ingestion results
+    - Returns a structured result object summarizing ingestion results
 
     Column comments are applied when a structured schema with comments metadata is available.
 
@@ -85,35 +87,46 @@ def process_table(
 
         df_override (DataFrame | None, optional):
             Optional Spark DataFrame to ingest instead of loading from the Bronze path.
-            When provided, the Bronze read path is skipped, `bronze_path` is reported as
-            "<dataframe>", and `format` is taken from `table["format"]` if present,
-            otherwise "<dataframe>".
+            When provided, the Bronze read path is skipped. The result reports
+            `input_source="dataframe"`, and `bronze_path` and `format` are returned as None.
 
     Returns:
-        dict[str, Any]:
-            A structured dictionary summarizing the ingestion outcome, including:
-                - "name", "tenant", "target_table"
-                - "bronze_path", "silver_path"
-                - "rows_in", "rows_written", "elapsed_sec"
-                - "comments_report": result of applying column comments, or None if not applicable
-                - "status": "success" or "failed"
-                - Additional diagnostic fields for errors or special handlers.
+        TableProcessResult:
+            A structured table-processing result object. Returns:
+                - TableProcessSuccess when ingestion completes successfully
+                - TableProcessFailure when data loading fails
+
+            The success result includes fields such as:
+                - name, tenant, target_table
+                - bronze_path, silver_path
+                - rows_in, rows_written, elapsed_sec
+                - comments_report
+                - status
+
+            The failure result includes fields such as:
+                - name, error, phase
+                - bronze_path, format, input_source
+                - status
 
     Raises:
         KeyError: If required keys (e.g., "name") are missing from the table config.
-        Exception: Propagates errors from schema resolution or data loading phases
-                   if not handled internally.
+        Exception: May propagate errors from schema resolution or downstream processing
+                   phases that are not handled internally.
 
     Example:
         >>> result = process_table(
         ...     spark=spark,
         ...     logger=logger,
         ...     loader=loader,
-        ...     tenant="tenant_alpha",
+        ...     ctx={
+        ...         "tenant": "tenant_alpha",
+        ...         "namespace": "tenant_alpha__dataset",
+        ...         "namespace_base_path": "s3a://silver/"
+        ...     },
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
-        >>> print(result["status"])
+        >>> print(result.status)
         success
     """
     # --- Dynamic table context and logging ---
@@ -139,6 +152,7 @@ def process_table(
     # We'll fill these depending on mode
     bronze_path: str | None = None
     fmt: str | None = None
+    input_source = "dataframe" if df_override is not None else "bronze"
 
     logger.info(f"   Silver: {silver_path}")
 
@@ -147,9 +161,9 @@ def process_table(
         if df_override is not None:
             df = df_override
             rows_in = df.count()
-            bronze_path = "<dataframe>"
-            fmt = table.get("format") or "<dataframe>"
-            logger.info(f"   Bronze: {bronze_path} (override)")
+            bronze_path = None
+            fmt = None
+            logger.info("   Bronze: <dataframe override>")
         else:
             bronze_path = loader.get_bronze_path(name)
             fmt = detect_format(bronze_path, table.get("format"))
@@ -171,14 +185,15 @@ def process_table(
 
     except Exception as e:
         logger.error(f"Failed to load data for table '{name}': {e}", exc_info=True)
-        return {
-            "name": name,
-            "error": str(e),
-            "phase": "data_loading",
-            "bronze_path": bronze_path,
-            "format": fmt,
-            "status": "failed",
-        }
+        return TableProcessFailure(
+            name=name,
+            error=str(e),
+            phase="data_loading",
+            bronze_path=bronze_path,
+            format=fmt,
+            input_source=input_source,
+            status="failed",
+        )
 
     # --- Apply schema  ---
     df, schema_meta = apply_schema_columns(
@@ -225,23 +240,23 @@ def process_table(
 
     logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
-    return {
-        "name": name,
-        "tenant": tenant,
-        "target_table": f"{namespace}.{name}",
-        "mode": mode,
-        "format": fmt,
-        "schema_source": resolved.schema_source,
-        "input_source": "dataframe" if df_override is not None else "bronze",
-        "bronze_path": bronze_path,
-        "silver_path": silver_path,
-        "rows_in": rows_in,
-        "rows_written": rows_written,
-        "rows_rejected": rows_rejected,
-        "extra_columns_dropped": dropped_cols,
-        "partitions_written": partitions_written,
-        "quarantine_path": quarantine_path,
-        "elapsed_sec": elapsed_sec,
-        "status": "success",
-        "comments_report": comments_report,
-    }
+    return TableProcessSuccess(
+        name=name,
+        tenant=tenant,
+        target_table=f"{namespace}.{name}",
+        mode=mode,
+        format=fmt,
+        schema_source=str(resolved.schema_source),
+        input_source=input_source,
+        bronze_path=bronze_path,
+        silver_path=silver_path,
+        rows_in=rows_in,
+        rows_written=rows_written,
+        rows_rejected=rows_rejected,
+        extra_columns_dropped=dropped_cols,
+        partitions_written=partitions_written,
+        quarantine_path=quarantine_path,
+        elapsed_sec=elapsed_sec,
+        status="success",
+        comments_report=comments_report,
+    )

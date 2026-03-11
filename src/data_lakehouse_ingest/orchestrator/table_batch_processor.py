@@ -24,6 +24,7 @@ from .table_processor import process_table
 import logging
 from pyspark.sql import SparkSession, DataFrame
 from minio import Minio
+from dataclasses import asdict
 
 
 def process_tables(
@@ -106,7 +107,19 @@ def process_tables(
                 minio_client=minio_client,
                 df_override=(dataframes or {}).get(table.get("name", "")),
             )
-            table_reports.append(report_row)
+
+            report_dict = asdict(report_row)
+            table_reports.append(report_dict)
+
+            if report_dict.get("status") == "failed":
+                error_list.append(
+                    {
+                        "phase": report_dict.get("phase", "table_processing"),
+                        "table": report_dict.get("name"),
+                        "error": report_dict.get("error", "Unknown table processing error"),
+                    }
+                )
+
         except Exception as e:
             entry = error_entry_for_exception(table, e)
             table_reports.append(entry)

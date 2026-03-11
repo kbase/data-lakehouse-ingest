@@ -1,6 +1,31 @@
 from unittest.mock import MagicMock, patch
+from dataclasses import asdict
 
 from data_lakehouse_ingest.orchestrator.table_batch_processor import process_tables
+from data_lakehouse_ingest.orchestrator.models import TableProcessSuccess
+
+
+def make_success(name: str = "table") -> TableProcessSuccess:
+    return TableProcessSuccess(
+        name=name,
+        tenant=None,
+        target_table=f"db.{name}",
+        mode="overwrite",
+        format=None,
+        schema_source="schema_sql",
+        input_source="dataframe",
+        bronze_path=None,
+        silver_path="s3a://bucket/silver",
+        rows_in=1,
+        rows_written=1,
+        rows_rejected=0,
+        extra_columns_dropped=[],
+        partitions_written=None,
+        quarantine_path=None,
+        elapsed_sec=0.1,
+        status="success",
+        comments_report=None,
+    )
 
 
 def test_process_tables_success():
@@ -20,8 +45,47 @@ def test_process_tables_success():
     started_at = "2025-01-01T00:00:00Z"
 
     # Mock process_table to return different rows for each call
-    mock_report_1 = {"status": "success", "table": "table1"}
-    mock_report_2 = {"status": "success", "table": "table2"}
+    mock_report_1 = TableProcessSuccess(
+        name="table1",
+        tenant=None,
+        target_table="db.table1",
+        mode="overwrite",
+        format="csv",
+        schema_source="schema_sql",
+        input_source="bronze",
+        bronze_path="s3a://bucket/table1.csv",
+        silver_path="s3a://bucket/silver",
+        rows_in=10,
+        rows_written=10,
+        rows_rejected=0,
+        extra_columns_dropped=[],
+        partitions_written=None,
+        quarantine_path=None,
+        elapsed_sec=1.0,
+        status="success",
+        comments_report=None,
+    )
+
+    mock_report_2 = TableProcessSuccess(
+        name="table2",
+        tenant=None,
+        target_table="db.table2",
+        mode="overwrite",
+        format="csv",
+        schema_source="schema_sql",
+        input_source="bronze",
+        bronze_path="s3a://bucket/table2.csv",
+        silver_path="s3a://bucket/silver",
+        rows_in=20,
+        rows_written=20,
+        rows_rejected=0,
+        extra_columns_dropped=[],
+        partitions_written=None,
+        quarantine_path=None,
+        elapsed_sec=1.2,
+        status="success",
+        comments_report=None,
+    )
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
@@ -37,7 +101,7 @@ def test_process_tables_success():
         )
 
     # --- Assertions ---
-    assert table_reports == [mock_report_1, mock_report_2]
+    assert table_reports == [asdict(mock_report_1), asdict(mock_report_2)]
     assert error_list == []
 
     # Ensure process_table was called twice (once per table)
@@ -107,7 +171,7 @@ def test_process_tables_passes_df_override_when_present():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        side_effect=[{"status": "success"}, {"status": "success"}],
+        side_effect=[make_success("table1"), make_success("table2")]
     ) as mock_process_table:
         process_tables(
             spark=spark,
@@ -142,7 +206,7 @@ def test_process_tables_df_override_none_when_missing_or_no_dataframes():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        return_value={"status": "success"},
+        return_value=make_success("table1"),
     ) as mock_process_table:
         process_tables(
             spark=spark,
@@ -160,7 +224,7 @@ def test_process_tables_df_override_none_when_missing_or_no_dataframes():
     # Now: table name not found in dataframes dict
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        return_value={"status": "success"},
+        return_value=make_success("table1"),
     ) as mock_process_table2:
         process_tables(
             spark=spark,
@@ -191,7 +255,7 @@ def test_process_tables_table_without_name_does_not_crash_df_lookup():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        return_value={"status": "success"},
+        return_value=make_success("table1"),
     ) as mock_process_table:
         process_tables(
             spark=spark,
@@ -220,7 +284,7 @@ def test_process_tables_continues_after_one_table_fails():
     ctx = {"tables": [{"name": "bad"}, {"name": "good"}]}
     started_at = "2025-01-01T00:00:00Z"
 
-    good_report = {"status": "success", "table": "good"}
+    good_report = make_success("good")
     bad_error_entry = {"status": "error", "table": "bad", "error": "boom"}
 
     def side_effect(*args, **kwargs):
@@ -246,7 +310,7 @@ def test_process_tables_continues_after_one_table_fails():
             )
 
     # bad -> error entry, good -> success
-    assert table_reports == [bad_error_entry, good_report]
+    assert table_reports == [bad_error_entry, asdict(good_report)]
     assert error_list == [bad_error_entry]
 
     assert mock_process_table.call_count == 2
@@ -267,7 +331,7 @@ def test_process_tables_passes_through_required_context_fields():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        return_value={"status": "success"},
+        return_value=make_success("table1"),
     ) as mock_process_table:
         process_tables(
             spark=spark,

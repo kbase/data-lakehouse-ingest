@@ -23,6 +23,7 @@ hinting functions that may return either success or failure results.
 from dataclasses import dataclass
 from typing import Any, Union
 
+
 @dataclass
 class TableProcessSuccess:
     """
@@ -53,6 +54,7 @@ class TableProcessSuccess:
         comments_report: Result of applying Delta column comments when structured
             schema metadata includes column comments.
     """
+
     name: str
     tenant: str | None
     target_table: str | None
@@ -71,6 +73,7 @@ class TableProcessSuccess:
     elapsed_sec: float | None
     status: str
     comments_report: dict[str, Any] | None
+
 
 @dataclass
 class TableProcessFailure:
@@ -91,6 +94,7 @@ class TableProcessFailure:
             or a DataFrame override.
         status: Processing status, typically "failed".
     """
+
     name: str
     error: str
     phase: str
@@ -98,5 +102,6 @@ class TableProcessFailure:
     format: str | None
     input_source: str
     status: str
+
 
 TableProcessResult = Union[TableProcessSuccess, TableProcessFailure]

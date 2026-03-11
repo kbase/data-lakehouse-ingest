@@ -171,7 +171,7 @@ def test_process_tables_passes_df_override_when_present():
 
     with patch(
         "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
-        side_effect=[make_success("table1"), make_success("table2")]
+        side_effect=[make_success("table1"), make_success("table2")],
     ) as mock_process_table:
         process_tables(
             spark=spark,

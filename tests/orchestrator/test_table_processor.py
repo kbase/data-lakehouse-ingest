@@ -6,6 +6,7 @@ from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
 from types import SimpleNamespace
 from dataclasses import asdict
 
+
 @pytest.fixture
 def mock_spark():
     spark = MagicMock()
@@ -914,7 +915,11 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
     first_call = mock_resolve_schema.call_args_list[0]
     second_call = mock_resolve_schema.call_args_list[1]
 
-    assert first_call.kwargs["table"] == {"name": "test_table", "format": "csv", "mode": "overwrite"}
+    assert first_call.kwargs["table"] == {
+        "name": "test_table",
+        "format": "csv",
+        "mode": "overwrite",
+    }
     assert second_call.kwargs["table"] == {"name": "test_table", "mode": "overwrite"}
 
     for call in mock_write_to_delta.call_args_list:

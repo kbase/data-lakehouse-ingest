@@ -77,7 +77,6 @@ def process_table(
                 - "format": Input format override (optional)
                 - "mode": Write mode (e.g., "overwrite", "append")
                 - "partition_by": Optional partition columns
-                - "drop_extra_columns": Whether to drop non-schema columns
 
         run_started_at_iso (str):
             ISO-8601 timestamp representing when the pipeline run began.

@@ -297,7 +297,10 @@ def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
 
     mock_init_ctx.return_value = {"tables": [{"name": "table1"}, {"name": "table2"}]}
     mock_process_tables.return_value = (
-        [{"name": "table1", "status": ProcessStatus.SUCCESS}, {"name": "table2", "status": ProcessStatus.SUCCESS}],
+        [
+            {"name": "table1", "status": ProcessStatus.SUCCESS},
+            {"name": "table2", "status": ProcessStatus.SUCCESS},
+        ],
         [],
     )
 

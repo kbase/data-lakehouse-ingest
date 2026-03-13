@@ -12,6 +12,7 @@ Purpose:
 
 from __future__ import annotations
 import logging
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 from minio import Minio
@@ -28,7 +29,14 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
 )
 from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
-from .models import TableProcessSuccess, TableProcessFailure, TableProcessResult
+from .models import (
+    TableProcessSuccess,
+    TableProcessFailure,
+    TableProcessResult,
+    ProcessStatus,
+    InputSource,
+    WriteMode,
+)
 
 
 def process_table(
@@ -87,30 +95,31 @@ def process_table(
         df_override (DataFrame | None, optional):
             Optional Spark DataFrame to ingest instead of loading from the Bronze path.
             When provided, the Bronze read path is skipped. The result reports
-            `input_source="dataframe"`, and `bronze_path` and `format` are returned as None.
+            `input_source=InputSource.DATAFRAME`, and `bronze_path` and `format` are returned as None.
 
     Returns:
         TableProcessResult:
             A structured table-processing result object. Returns:
                 - TableProcessSuccess when ingestion completes successfully
-                - TableProcessFailure when data loading fails
-
+                - TableProcessFailure for handled data-loading failures
+                - exceptions may still propagate for invalid configuration or downstream processing errors
             The success result includes fields such as:
                 - name, tenant, target_table
                 - bronze_path, silver_path
                 - rows_in, rows_written, elapsed_sec
                 - comments_report
-                - status
+                - status (represented by ProcessStatus)
 
             The failure result includes fields such as:
                 - name, error, phase
                 - bronze_path, format, input_source
-                - status
+                - status (represented by ProcessStatus)
 
     Raises:
         KeyError: If required keys (e.g., "name") are missing from the table config.
         Exception: May propagate errors from schema resolution or downstream processing
                    phases that are not handled internally.
+        ValueError: If the configured write mode is not one of the supported values.
 
     Example:
         >>> result = process_table(
@@ -125,7 +134,7 @@ def process_table(
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
-        >>> print(result.status)
+        >>> print(result.status.value)
         success
     """
     # --- Dynamic table context and logging ---
@@ -151,7 +160,7 @@ def process_table(
     # We'll fill these depending on mode
     bronze_path: str | None = None
     fmt: str | None = None
-    input_source = "dataframe" if df_override is not None else "bronze"
+    input_source = InputSource.DATAFRAME if df_override is not None else InputSource.BRONZE
 
     logger.info(f"   Silver: {silver_path}")
 
@@ -191,7 +200,8 @@ def process_table(
             bronze_path=bronze_path,
             format=fmt,
             input_source=input_source,
-            status="failed",
+            status=ProcessStatus.FAILED,
+            traceback=traceback.format_exc(),
         )
 
     # --- Apply schema  ---
@@ -205,7 +215,16 @@ def process_table(
 
     # --- Write to Delta ---
     partition_by = table.get("partition_by")
-    mode = table.get("mode", "overwrite")
+    raw_mode = table.get("mode", "overwrite")
+
+    try:
+        mode = WriteMode(raw_mode)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid write mode '{raw_mode}' for table '{name}'. "
+            f"Supported modes are: {[m.value for m in WriteMode]}"
+        ) from e
+
     rows_written = write_to_delta(
         df=df,
         spark=spark,
@@ -214,7 +233,7 @@ def process_table(
         name=name,
         silver_path=silver_path,
         partition_by=partition_by,
-        mode=mode,
+        mode=mode.value,
         logger=logger,
     )
 
@@ -245,7 +264,7 @@ def process_table(
         target_table=f"{namespace}.{name}",
         mode=mode,
         format=fmt,
-        schema_source=str(resolved.schema_source),
+        schema_source=resolved.schema_source,
         input_source=input_source,
         bronze_path=bronze_path,
         silver_path=silver_path,
@@ -256,6 +275,6 @@ def process_table(
         partitions_written=partitions_written,
         quarantine_path=quarantine_path,
         elapsed_sec=elapsed_sec,
-        status="success",
+        status=ProcessStatus.SUCCESS,
         comments_report=comments_report,
     )

@@ -21,8 +21,10 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
 def test_detect_format_by_extension(filename, format_hint, expected):
     assert detect_format(filename, format_hint) == expected
 
+
 def test_detect_format_explicit_override_lowercases():
     assert detect_format("file.csv", "JSON") == "json"
+
 
 @patch("data_lakehouse_ingest.orchestrator.io_utils.load_json_data")
 def test_load_table_data_uses_correct_loader(mock_loader):
@@ -41,9 +43,7 @@ def test_load_table_data_uses_correct_loader(mock_loader):
         mock_logger,
     )
 
-    mock_loader.assert_called_once_with(
-        mock_spark, "s3://bucket/data.json", {}, mock_logger
-    )
+    mock_loader.assert_called_once_with(mock_spark, "s3://bucket/data.json", {}, mock_logger)
     assert df == mock_df
     assert rows_in == 10
 

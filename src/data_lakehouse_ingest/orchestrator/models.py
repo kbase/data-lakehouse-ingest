@@ -35,6 +35,7 @@ class ProcessStatus(Enum):
     """
     Represents the outcome of a table processing operation.
     """
+
     SUCCESS = "success"
     FAILED = "failed"
 
@@ -43,6 +44,7 @@ class InputSource(Enum):
     """
     Indicates where the input data originated from.
     """
+
     BRONZE = "bronze"
     DATAFRAME = "dataframe"
 
@@ -51,6 +53,7 @@ class WriteMode(Enum):
     """
     Supported write modes when writing Delta tables.
     """
+
     OVERWRITE = "overwrite"
     APPEND = "append"
 

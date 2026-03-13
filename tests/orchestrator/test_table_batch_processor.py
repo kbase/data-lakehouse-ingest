@@ -2,7 +2,14 @@ from unittest.mock import MagicMock, patch
 from dataclasses import asdict
 
 from data_lakehouse_ingest.orchestrator.table_batch_processor import process_tables
-from data_lakehouse_ingest.orchestrator.models import TableProcessSuccess
+from data_lakehouse_ingest.orchestrator.models import (
+    TableProcessSuccess,
+    TableProcessFailure,
+    ProcessStatus,
+    InputSource,
+    WriteMode,
+)
+from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
 
 
 def make_success(name: str = "table") -> TableProcessSuccess:
@@ -10,10 +17,10 @@ def make_success(name: str = "table") -> TableProcessSuccess:
         name=name,
         tenant=None,
         target_table=f"db.{name}",
-        mode="overwrite",
+        mode=WriteMode.OVERWRITE,
         format=None,
-        schema_source="schema_sql",
-        input_source="dataframe",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        input_source=InputSource.DATAFRAME,
         bronze_path=None,
         silver_path="s3a://bucket/silver",
         rows_in=1,
@@ -23,8 +30,21 @@ def make_success(name: str = "table") -> TableProcessSuccess:
         partitions_written=None,
         quarantine_path=None,
         elapsed_sec=0.1,
-        status="success",
+        status=ProcessStatus.SUCCESS,
         comments_report=None,
+    )
+
+
+def make_failure(name: str = "bad_table", traceback: str | None = None) -> TableProcessFailure:
+    return TableProcessFailure(
+        name=name,
+        error="boom",
+        phase="write",
+        bronze_path="s3a://bucket/input.csv",
+        format="csv",
+        input_source=InputSource.BRONZE,
+        status=ProcessStatus.FAILED,
+        traceback=traceback,
     )
 
 
@@ -49,10 +69,10 @@ def test_process_tables_success():
         name="table1",
         tenant=None,
         target_table="db.table1",
-        mode="overwrite",
+        mode=WriteMode.OVERWRITE,
         format="csv",
-        schema_source="schema_sql",
-        input_source="bronze",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        input_source=InputSource.BRONZE,
         bronze_path="s3a://bucket/table1.csv",
         silver_path="s3a://bucket/silver",
         rows_in=10,
@@ -62,7 +82,7 @@ def test_process_tables_success():
         partitions_written=None,
         quarantine_path=None,
         elapsed_sec=1.0,
-        status="success",
+        status=ProcessStatus.SUCCESS,
         comments_report=None,
     )
 
@@ -70,10 +90,10 @@ def test_process_tables_success():
         name="table2",
         tenant=None,
         target_table="db.table2",
-        mode="overwrite",
+        mode=WriteMode.OVERWRITE,
         format="csv",
-        schema_source="schema_sql",
-        input_source="bronze",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        input_source=InputSource.BRONZE,
         bronze_path="s3a://bucket/table2.csv",
         silver_path="s3a://bucket/silver",
         rows_in=20,
@@ -83,7 +103,7 @@ def test_process_tables_success():
         partitions_written=None,
         quarantine_path=None,
         elapsed_sec=1.2,
-        status="success",
+        status=ProcessStatus.SUCCESS,
         comments_report=None,
     )
 
@@ -346,3 +366,72 @@ def test_process_tables_passes_through_required_context_fields():
     assert kwargs["ctx"] is ctx
     assert kwargs["run_started_at_iso"] == started_at
     assert kwargs["minio_client"] is minio_client
+
+
+def test_process_tables_adds_error_entry_when_process_table_returns_failure():
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"name": "bad_table"}]}
+    started_at = "2025-01-01T00:00:00Z"
+
+    failure_report = make_failure("bad_table")
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value=failure_report,
+    ):
+        table_reports, error_list = process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+        )
+
+    assert table_reports == [asdict(failure_report)]
+    assert error_list == [
+        {
+            "phase": "write",
+            "table": "bad_table",
+            "error": "boom",
+        }
+    ]
+
+
+def test_process_tables_adds_traceback_when_failure_report_contains_it():
+    spark = MagicMock()
+    logger = MagicMock()
+    loader = MagicMock()
+    minio_client = MagicMock()
+
+    ctx = {"tables": [{"name": "bad_table"}]}
+    started_at = "2025-01-01T00:00:00Z"
+
+    failure_report = make_failure("bad_table", traceback="Traceback details")
+
+    with patch(
+        "data_lakehouse_ingest.orchestrator.table_batch_processor.process_table",
+        return_value=failure_report,
+    ):
+        table_reports, error_list = process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+        )
+
+    assert table_reports == [asdict(failure_report)]
+    assert error_list == [
+        {
+            "phase": "write",
+            "table": "bad_table",
+            "error": "boom",
+            "traceback": "Traceback details",
+        }
+    ]

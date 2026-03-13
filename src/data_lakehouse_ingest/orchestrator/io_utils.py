@@ -113,6 +113,8 @@ def write_to_delta(
 
     logger.info(f"Resolved Delta target path: {table_path}")
 
+    rows_written = df.count()
+
     # Write (with overwriteSchema only for overwrite mode)
     writer = df.write.format("delta").mode(mode)
 
@@ -131,8 +133,7 @@ def write_to_delta(
         LOCATION '{table_path}'
     """)
 
-    # Count and log rows
-    rows_written = spark.read.format("delta").load(table_path).count()
+    # log rows
     logger.info(f"Wrote {rows_written} rows → {namespace}.{name} @ {table_path}")
 
     return rows_written

@@ -14,6 +14,7 @@ from pyspark.sql import SparkSession, DataFrame
 from .utils.report_utils import generate_report
 from .logger import safe_log_json
 from .config_loader import ConfigLoader
+from .orchestrator.models import ProcessStatus
 
 # New modular helpers
 from .orchestrator.init_utils import init_logger, init_run_context
@@ -46,7 +47,10 @@ def ingest(
             When provided, keys must match table names defined in the configuration.
 
     Returns:
-        dict[str, Any]: A structured ingestion report containing status, errors, and table-level metrics.
+        dict[str, Any]:
+            A structured ingestion report containing overall success status,
+            table-level metrics, and captured errors. Enum values are serialized
+            when the report is logged or exported using the pipeline JSON encoder.
 
     Notes:
         - SparkSession may be provided by the caller or auto-initialized.
@@ -56,6 +60,7 @@ def ingest(
         - Supports multiple file formats (CSV, TSV, JSON, XML, Parquet).
         - Schema enforcement supports SQL-style schemas (`schema_sql`) and structured schemas (`schema` list-of-maps).
         - Each table in the configuration is processed independently.
+        - Table processing results include enum-based status and input metadata.
         - If `dataframes` is provided, it is validated as dict[str, DataFrame] and keys must match configured tables.
     """
     started_at = datetime.now(timezone.utc).isoformat()
@@ -218,7 +223,7 @@ def ingest(
 
     # --- Final report ---
     report = generate_report(
-        success=all(t.get("status") == "success" for t in table_reports),
+        success=all(t.get("status") == ProcessStatus.SUCCESS for t in table_reports),
         started_at=started_at,
         tables=table_reports,
         errors=error_list,
@@ -265,7 +270,8 @@ def log_error(
             - `success=False`
             - `started_at` timestamp
             - empty `tables` list
-            - a single entry in `errors` describing the failed phase and message
+            - a single entry in `errors` describing the failed phase and message.
+              If an exception is provided, the traceback is included in the logs.
 
     Notes:
         - This function is used for early termination paths (e.g., Spark setup,

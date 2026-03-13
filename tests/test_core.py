@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 from pyspark.sql import DataFrame
 from data_lakehouse_ingest.core import ingest
+from data_lakehouse_ingest.orchestrator.models import ProcessStatus
 
 
 # ---------------------------------------------------------------------
@@ -63,7 +64,7 @@ def test_ingest_autoinit_spark_and_minio_success(
     mock_get_minio.return_value = MagicMock()
 
     mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
-    mock_process_tables.return_value = ([{"name": "table1", "status": "success"}], [])
+    mock_process_tables.return_value = ([{"name": "table1", "status": ProcessStatus.SUCCESS}], [])
 
     # ConfigLoader should be constructible
     mock_configloader.return_value = MagicMock()
@@ -133,7 +134,7 @@ def test_ingest_config_valid_json(
 ):
     mock_minio.return_value = MagicMock()
 
-    mock_process.return_value = ([{"name": "table1", "status": "success"}], [])
+    mock_process.return_value = ([{"name": "table1", "status": ProcessStatus.SUCCESS}], [])
 
     loader = mock_configloader.return_value
 
@@ -164,7 +165,7 @@ def test_ingest_config_valid_json(
 
     assert result["success"] is True
     assert len(result["tables"]) == 1
-    assert result["tables"][0]["status"] == "success"
+    assert result["tables"][0]["status"] == ProcessStatus.SUCCESS
 
 
 # ---------------------------------------------------------------------
@@ -296,7 +297,7 @@ def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
 
     mock_init_ctx.return_value = {"tables": [{"name": "table1"}, {"name": "table2"}]}
     mock_process_tables.return_value = (
-        [{"name": "table1", "status": "success"}, {"name": "table2", "status": "success"}],
+        [{"name": "table1", "status": ProcessStatus.SUCCESS}, {"name": "table2", "status": ProcessStatus.SUCCESS}],
         [],
     )
 

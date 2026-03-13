@@ -3,6 +3,7 @@ import logging
 from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.table_processor import process_table
 from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
+from data_lakehouse_ingest.orchestrator.models import ProcessStatus, InputSource, WriteMode
 from types import SimpleNamespace
 from dataclasses import asdict
 
@@ -104,10 +105,10 @@ def test_process_table_success(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": "csv",
-        "schema_source": str(SchemaSource.SCHEMA_SQL),
-        "input_source": "bronze",
+        "schema_source": SchemaSource.SCHEMA_SQL,
+        "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
         "silver_path": "s3a://silver/",
         "rows_in": 100,
@@ -116,7 +117,7 @@ def test_process_table_success(
         "extra_columns_dropped": [],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": None,
     }
 
@@ -146,6 +147,10 @@ def test_process_table_success(
         "recursiveFileLookup": "true",
     }
     assert args[4] == mock_logger
+
+    assert result.status == ProcessStatus.SUCCESS
+    assert result.input_source == InputSource.BRONZE
+    assert result.mode == WriteMode.OVERWRITE
 
 
 # ---------------------------------------------------------------------
@@ -228,10 +233,10 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": "csv",
-        "schema_source": str(SchemaSource.SCHEMA_STRUCTURED),
-        "input_source": "bronze",
+        "schema_source": SchemaSource.SCHEMA_STRUCTURED,
+        "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
         "silver_path": "s3a://silver/",
         "rows_in": 100,
@@ -240,7 +245,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "extra_columns_dropped": [],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": {"applied": 1, "skipped": 0, "missing_in_table": []},
     }
 
@@ -363,10 +368,10 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": "csv",
-        "schema_source": str(SchemaSource.SCHEMA_SQL),
-        "input_source": "bronze",
+        "schema_source": SchemaSource.SCHEMA_SQL,
+        "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
         "silver_path": "s3a://silver/",
         "rows_in": 100,
@@ -375,7 +380,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         "extra_columns_dropped": [],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": None,
     }
     mock_apply_comments.assert_not_called()
@@ -475,15 +480,16 @@ def test_process_table_data_load_failure(
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert asdict(result) == {
-        "name": "test_table",
-        "error": "Simulated load failure",
-        "phase": "data_loading",
-        "bronze_path": "s3a://bronze/test_table/",
-        "format": "csv",
-        "input_source": "bronze",
-        "status": "failed",
-    }
+    result_dict = asdict(result)
+    assert result_dict["name"] == "test_table"
+    assert result_dict["error"] == "Simulated load failure"
+    assert result_dict["phase"] == "data_loading"
+    assert result_dict["bronze_path"] == "s3a://bronze/test_table/"
+    assert result_dict["format"] == "csv"
+    assert result_dict["input_source"] == InputSource.BRONZE
+    assert result_dict["status"] == ProcessStatus.FAILED
+    assert isinstance(result_dict["traceback"], str)
+    assert "Simulated load failure" in result_dict["traceback"]
 
     mock_resolve_schema.assert_called_once_with(
         spark=mock_spark,
@@ -584,10 +590,10 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": "csv",
-        "schema_source": str(SchemaSource.SCHEMA_SQL),
-        "input_source": "bronze",
+        "schema_source": SchemaSource.SCHEMA_SQL,
+        "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
         "silver_path": "s3a://silver/",
         "rows_in": 100,
@@ -596,7 +602,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "extra_columns_dropped": [],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": None,
     }
     mock_logger.context_filter.set_table.assert_called_once_with("test_table")
@@ -708,7 +714,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
         run_started_at_iso="2025-10-31T12:00:00Z",
     )
 
-    assert result.status == "success"
+    assert result.status == ProcessStatus.SUCCESS
     assert result.target_table == "tenant_alpha__dataset.test_table"
 
     # Assert fallback delimiter for TSV was used
@@ -792,10 +798,10 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": None,
-        "schema_source": str(SchemaSource.SCHEMA_SQL),
-        "input_source": "dataframe",
+        "schema_source": SchemaSource.SCHEMA_SQL,
+        "input_source": InputSource.DATAFRAME,
         "bronze_path": None,
         "silver_path": "s3a://silver/",
         "rows_in": 123,
@@ -804,7 +810,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         "extra_columns_dropped": [],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": None,
     }
 
@@ -985,8 +991,8 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
         df_override=df_override,
     )
 
-    assert result.status == "success"
-    assert result.input_source == "dataframe"
+    assert result.status == ProcessStatus.SUCCESS
+    assert result.input_source == InputSource.DATAFRAME
     assert result.bronze_path is None
     assert result.format is None
     assert result.comments_report == {"applied": 1, "skipped": 0, "missing_in_table": []}
@@ -1097,10 +1103,10 @@ def test_process_table_reports_dropped_columns(
         "name": "test_table",
         "tenant": "tenant_alpha",
         "target_table": "tenant_alpha__dataset.test_table",
-        "mode": "overwrite",
+        "mode": WriteMode.OVERWRITE,
         "format": "csv",
-        "schema_source": str(SchemaSource.SCHEMA_SQL),
-        "input_source": "bronze",
+        "schema_source": SchemaSource.SCHEMA_SQL,
+        "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
         "silver_path": "s3a://silver/",
         "rows_in": 100,
@@ -1109,7 +1115,7 @@ def test_process_table_reports_dropped_columns(
         "extra_columns_dropped": ["colA", "colB"],
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
-        "status": "success",
+        "status": ProcessStatus.SUCCESS,
         "comments_report": None,
     }
 

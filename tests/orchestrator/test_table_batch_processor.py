@@ -13,6 +13,10 @@ from data_lakehouse_ingest.orchestrator.schema_utils import SchemaSource
 
 
 def make_success(name: str = "table") -> TableProcessSuccess:
+    """
+    Create a minimal TableProcessSuccess object for use in tests.
+    Allows overriding the table name.
+    """
     return TableProcessSuccess(
         name=name,
         tenant=None,
@@ -36,6 +40,10 @@ def make_success(name: str = "table") -> TableProcessSuccess:
 
 
 def make_failure(name: str = "bad_table", traceback: str | None = None) -> TableProcessFailure:
+    """
+    Create a minimal TableProcessFailure object for testing error handling.
+    Optionally includes traceback information.
+    """
     return TableProcessFailure(
         name=name,
         error="boom",
@@ -369,6 +377,10 @@ def test_process_tables_passes_through_required_context_fields():
 
 
 def test_process_tables_adds_error_entry_when_process_table_returns_failure():
+    """
+    Ensures that when process_table returns a TableProcessFailure,
+    an appropriate error entry is added to the error_list.
+    """
     spark = MagicMock()
     logger = MagicMock()
     loader = MagicMock()
@@ -403,6 +415,10 @@ def test_process_tables_adds_error_entry_when_process_table_returns_failure():
 
 
 def test_process_tables_adds_traceback_when_failure_report_contains_it():
+    """
+    Verifies that traceback information from a TableProcessFailure
+    is included in the generated error entry.
+    """
     spark = MagicMock()
     logger = MagicMock()
     loader = MagicMock()

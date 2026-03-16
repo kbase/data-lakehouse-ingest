@@ -1,7 +1,8 @@
 """
 Provides a custom JSON encoder for structured logging and report generation.
-Ensures that common non-serializable objects (e.g., datetime, Decimal, Path)
-are converted into consistent, human-readable formats (ISO 8601, float, string).
+Ensures that common non-serializable objects (e.g., datetime, Decimal,
+Path, UUID, Enum) are converted into consistent, human-readable formats
+(ISO 8601, float, string).
 """
 
 import json
@@ -9,6 +10,7 @@ import datetime
 import decimal
 from pathlib import Path
 import uuid
+from enum import Enum
 
 
 class PipelineJSONEncoder(json.JSONEncoder):
@@ -39,6 +41,11 @@ class PipelineJSONEncoder(json.JSONEncoder):
         - UUID → string
             Converts `uuid.UUID` objects into canonical string form to preserve
             identity fields (useful for dataset or transaction identifiers).
+
+        - Enum → value
+            Converts `Enum` members into their `.value` representation so that
+            enum-based result fields (e.g., status, input_source, write_mode)
+            appear as simple strings in JSON reports.
 
         - Fallback → str(obj)
             For any other unrecognized type, gracefully converts the object to a
@@ -74,6 +81,10 @@ class PipelineJSONEncoder(json.JSONEncoder):
         # UUIDs
         if isinstance(obj, uuid.UUID):
             return str(obj)
+
+        # Enums
+        if isinstance(obj, Enum):
+            return obj.value
 
         # Fallback: string conversion for any other complex type
         try:

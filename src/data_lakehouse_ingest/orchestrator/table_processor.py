@@ -4,18 +4,19 @@ Purpose:
     the Data Lakehouse Ingest framework.
 
     The `process_table()` function orchestrates:
-      - Schema resolution (using LinkML or SQL schemas)
-      - Data loading from the Bronze layer (via Spark)
+      - Schema resolution (using SQL schema strings, structured column definitions, or DataFrame schemas)
+      - Data loading either from the Bronze layer (via Spark) or from a provided DataFrame
       - Schema application and column alignment
       - Writing curated data to the Silver layer in Delta format
 """
 
 from __future__ import annotations
 import logging
+import traceback
 from datetime import datetime, timezone
 from typing import Any
 from minio import Minio
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, DataFrame
 
 from data_lakehouse_ingest.orchestrator.schema_utils import (
     resolve_schema,
@@ -28,6 +29,15 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
 )
 from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
 
+from .models import (
+    TableProcessSuccess,
+    TableProcessFailure,
+    TableProcessResult,
+    ProcessStatus,
+    InputSource,
+    WriteMode,
+)
+
 
 def process_table(
     spark: SparkSession,
@@ -37,18 +47,19 @@ def process_table(
     table: dict,
     run_started_at_iso: str,
     minio_client: Minio | None = None,
-) -> dict[str, Any]:
+    df_override: DataFrame | None = None,
+) -> TableProcessResult:
     """
     Ingest a single table from the Bronze layer into the Silver Delta layer.
 
     This function handles both standard and specialized ingestion workflows:
-    - Determines file format (CSV, TSV, JSON, XML, etc.)
-    - Resolves the applicable schema using LinkML or SQL sources
-    - Loads data from the Bronze path via Spark
+    - Determines file format (CSV, TSV, JSON, XML, Parquet, etc.) when reading from Bronze storage
+    - Resolves the applicable schema using SQL schema strings, structured column definitions, or DataFrame schemas
+    - Loads data either from the Bronze path via Spark or from a provided DataFrame override
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
     - Applies Delta column comments when a structured (list-of-maps) schema is used
-    - Returns a structured report entry summarizing ingestion results
+    - Returns a structured result object summarizing ingestion results
 
     Column comments are applied when a structured schema with comments metadata is available.
 
@@ -74,7 +85,6 @@ def process_table(
                 - "format": Input format override (optional)
                 - "mode": Write mode (e.g., "overwrite", "append")
                 - "partition_by": Optional partition columns
-                - "drop_extra_columns": Whether to drop non-schema columns
 
         run_started_at_iso (str):
             ISO-8601 timestamp representing when the pipeline run began.
@@ -82,32 +92,49 @@ def process_table(
         minio_client (Minio | None, optional):
             Optional MinIO client for reading schema or metadata when required.
 
+        df_override (DataFrame | None, optional):
+            Optional Spark DataFrame to ingest instead of loading from the Bronze path.
+            When provided, the Bronze read path is skipped. The result reports
+            `input_source=InputSource.DATAFRAME`, and `bronze_path` and `format` are returned as None.
 
     Returns:
-        dict[str, Any]:
-            A structured dictionary summarizing the ingestion outcome, including:
-                - "name", "tenant", "target_table"
-                - "bronze_path", "silver_path"
-                - "rows_in", "rows_written", "elapsed_sec"
-                - "comments_report": result of applying column comments, or None if not applicable
-                - "status": "success" or "failed"
-                - Additional diagnostic fields for errors or special handlers.
+        TableProcessResult:
+            A structured table-processing result object. Returns:
+                - TableProcessSuccess when ingestion completes successfully
+                - TableProcessFailure for handled data-loading failures
+                - exceptions may still propagate for invalid configuration or downstream processing errors
+            The success result includes fields such as:
+                - name, tenant, target_table
+                - bronze_path, silver_path
+                - rows_in, rows_written, elapsed_sec
+                - comments_report
+                - status (represented by ProcessStatus)
+
+            The failure result includes fields such as:
+                - name, error, phase
+                - bronze_path, format, input_source
+                - status (represented by ProcessStatus)
 
     Raises:
         KeyError: If required keys (e.g., "name") are missing from the table config.
-        Exception: Propagates errors from schema resolution or data loading phases
-                   if not handled internally.
+        Exception: May propagate errors from schema resolution or downstream processing
+                   phases that are not handled internally.
+        ValueError: If the configured write mode is not one of the supported values.
 
     Example:
         >>> result = process_table(
         ...     spark=spark,
         ...     logger=logger,
         ...     loader=loader,
-        ...     tenant="tenant_alpha",
+        ...     ctx={
+        ...         "tenant": "tenant_alpha",
+        ...         "namespace": "tenant_alpha__dataset",
+        ...         "namespace_base_path": "s3a://silver/"
+        ...     },
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
-        >>> print(result["status"])
+        >>> print(result.status.value)
         success
     """
     # --- Dynamic table context and logging ---
@@ -123,46 +150,59 @@ def process_table(
     namespace_base_path = ctx["namespace_base_path"]
 
     name = table["name"]
-    bronze_path = loader.get_bronze_path(name)
     silver_path = namespace_base_path
 
-    # Regular CSV/TSV/JSON/XML path
     start_table_time = datetime.now(timezone.utc)
 
-    # --- Determine format ---
-    fmt = detect_format(bronze_path, table.get("format"))
-
-    # --- Resolve schema ---
+    # --- Resolve schema (needed for both modes) ---
     resolved = resolve_schema(spark=spark, table=table, logger=logger, minio_client=minio_client)
 
-    # --- Load format defaults ---
-    if hasattr(loader, "get_defaults_for"):
-        opts = loader.get_defaults_for(fmt)
-    else:
-        # Keep your original fallback behavior
-        delimiter = "\t" if fmt == "tsv" else ","
-        opts = {"header": True, "delimiter": delimiter, "inferSchema": False}
+    # We'll fill these depending on mode
+    bronze_path: str | None = None
+    fmt: str | None = None
+    input_source = InputSource.DATAFRAME if df_override is not None else InputSource.BRONZE
 
-    # Normalize bools to Spark-friendly strings
-    opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
-    opts["recursiveFileLookup"] = "true"
-
-    logger.info(f"   Bronze: {bronze_path}")
     logger.info(f"   Silver: {silver_path}")
 
-    # --- Load data ---
+    # --- Load data (either DF override OR Bronze path) ---
     try:
-        df, rows_in = load_table_data(spark, bronze_path, fmt, opts, logger)
+        if df_override is not None:
+            df = df_override
+            rows_in = df.count()
+            bronze_path = None
+            fmt = None
+            logger.info("   Bronze: <dataframe override>")
+        else:
+            bronze_path = loader.get_bronze_path(name)
+            fmt = detect_format(bronze_path, table.get("format"))
+
+            # --- Load format defaults ---
+            if hasattr(loader, "get_defaults_for"):
+                opts = loader.get_defaults_for(fmt)
+            else:
+                delimiter = "\t" if fmt == "tsv" else ","
+                opts = {"header": True, "delimiter": delimiter, "inferSchema": False}
+
+            # Normalize bools to Spark-friendly strings
+            opts = {k: (str(v).lower() if isinstance(v, bool) else v) for k, v in opts.items()}
+            opts["recursiveFileLookup"] = "true"
+
+            logger.info(f"   Bronze: {bronze_path}")
+
+            df, rows_in = load_table_data(spark, bronze_path, fmt, opts, logger)
+
     except Exception as e:
         logger.error(f"Failed to load data for table '{name}': {e}", exc_info=True)
-        return {
-            "name": name,
-            "error": str(e),
-            "phase": "data_loading",
-            "bronze_path": bronze_path,
-            "format": fmt,
-            "status": "failed",
-        }
+        return TableProcessFailure(
+            name=name,
+            error=str(e),
+            phase="data_loading",
+            bronze_path=bronze_path,
+            format=fmt,
+            input_source=input_source,
+            status=ProcessStatus.FAILED,
+            traceback=traceback.format_exc(),
+        )
 
     # --- Apply schema  ---
     df, schema_meta = apply_schema_columns(
@@ -175,7 +215,16 @@ def process_table(
 
     # --- Write to Delta ---
     partition_by = table.get("partition_by")
-    mode = table.get("mode", "overwrite")
+    raw_mode = table.get("mode", "overwrite")
+
+    try:
+        mode = WriteMode(raw_mode)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid write mode '{raw_mode}' for table '{name}'. "
+            f"Supported modes are: {[m.value for m in WriteMode]}"
+        ) from e
+
     rows_written = write_to_delta(
         df=df,
         spark=spark,
@@ -184,7 +233,7 @@ def process_table(
         name=name,
         silver_path=silver_path,
         partition_by=partition_by,
-        mode=mode,
+        mode=mode.value,
         logger=logger,
     )
 
@@ -209,22 +258,23 @@ def process_table(
 
     logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
 
-    return {
-        "name": name,
-        "tenant": tenant,
-        "target_table": f"{namespace}.{name}",
-        "mode": mode,
-        "format": fmt,
-        "schema_source": resolved.schema_source,
-        "bronze_path": bronze_path,
-        "silver_path": silver_path,
-        "rows_in": rows_in,
-        "rows_written": rows_written,
-        "rows_rejected": rows_rejected,
-        "extra_columns_dropped": dropped_cols,
-        "partitions_written": partitions_written,
-        "quarantine_path": quarantine_path,
-        "elapsed_sec": elapsed_sec,
-        "status": "success",
-        "comments_report": comments_report,
-    }
+    return TableProcessSuccess(
+        name=name,
+        tenant=tenant,
+        target_table=f"{namespace}.{name}",
+        mode=mode,
+        format=fmt,
+        schema_source=resolved.schema_source,
+        input_source=input_source,
+        bronze_path=bronze_path,
+        silver_path=silver_path,
+        rows_in=rows_in,
+        rows_written=rows_written,
+        rows_rejected=rows_rejected,
+        extra_columns_dropped=dropped_cols,
+        partitions_written=partitions_written,
+        quarantine_path=quarantine_path,
+        elapsed_sec=elapsed_sec,
+        status=ProcessStatus.SUCCESS,
+        comments_report=comments_report,
+    )

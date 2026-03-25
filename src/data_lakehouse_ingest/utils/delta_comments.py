@@ -31,8 +31,8 @@ def _escape_sql_string(s: str) -> str:
     Single quotes (apostrophes) do NOT need escaping for this syntax.
 
     Examples:
-        Input:  Prefix label's used in CURIEs
-        Output: Prefix label's used in CURIEs
+        Input:  Organism's taxonomic prefix
+        Output: Organism's taxonomic prefix
 
         Input:  Column named "status"
         Output: Column named \\"status\\"

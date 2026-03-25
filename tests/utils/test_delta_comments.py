@@ -41,13 +41,19 @@ class FakeSpark:
         return type("DF", (), {"collect": lambda _self: []})()
 
 
-def test_escape_sql_string_doubles_single_quotes():
-    """Escapes single quotes by doubling them for safe SQL string literals."""
-    assert _escape_sql_string("Bob's column") == "Bob''s column"
+def test_escape_sql_string_preserves_single_quotes_for_double_quoted_sql_literals():
+    """Single quotes do not need escaping inside COMMENT "..." strings."""
+    assert _escape_sql_string("Bob's column") == "Bob's column"
 
 
-def test_try_alter_column_comment_uses_alter_column_syntax_and_escapes_quotes():
-    """Applies column comments using ALTER COLUMN syntax and escapes quotes."""
+def test_escape_sql_string_escapes_double_quotes_and_backslashes():
+    """Escapes double quotes and backslashes for safe use inside COMMENT "..."."""
+    assert _escape_sql_string('Column "status"') == 'Column \\"status\\"'
+    assert _escape_sql_string(r"C:\data\input") == r"C:\\data\\input"
+
+
+def test_try_alter_column_comment_uses_alter_column_syntax_and_double_quoted_comment():
+    """Applies column comments using ALTER COLUMN syntax and COMMENT "..."."""
     spark = FakeSpark()
     logger = logging.getLogger("test")
 
@@ -55,7 +61,7 @@ def test_try_alter_column_comment_uses_alter_column_syntax_and_escapes_quotes():
 
     assert ok is True
     assert len(spark.sql_calls) == 1
-    assert "ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT 'Bob''s column'" in spark.sql_calls[0]
+    assert 'ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT "Bob\'s column"' in spark.sql_calls[0]
 
 
 def test_try_alter_column_comment_logs_error_and_returns_false_on_failure(caplog):
@@ -109,7 +115,7 @@ def test_apply_comments_skips_missing_or_empty_comments_and_applies_valid_ones()
         d.get("status") == "applied" and d.get("column") == "gene_id" for d in report["details"]
     )
     assert any(
-        "ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT 'Gene id'" in q for q in spark.sql_calls
+        'ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT "Gene id"' in q for q in spark.sql_calls
     )
 
 

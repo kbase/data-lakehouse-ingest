@@ -16,23 +16,37 @@ from pyspark.sql import SparkSession
 
 def _escape_sql_string(s: str) -> str:
     """
-    Escape a Python string for safe use inside a Spark SQL string literal.
+    Escape a Python string for safe use inside a double-quoted Spark SQL string literal.
 
-    Spark SQL uses single quotes for string literals. To safely embed
-    user-provided text (such as column comments), any single quote
-    characters must be escaped by doubling them.
+    This module applies comments using SQL of the form:
 
-    Example:
-        Input:  "Bob's column"
-        Output: "Bob''s column"
+        COMMENT "..."
+
+    Therefore, the only characters that must be escaped inside the comment
+    text are:
+
+      - backslash: \\
+      - double quote: "
+
+    Single quotes (apostrophes) do NOT need escaping for this syntax.
+
+    Examples:
+        Input:  Prefix label's used in CURIEs
+        Output: Prefix label's used in CURIEs
+
+        Input:  Column named "status"
+        Output: Column named \\"status\\"
+
+        Input:  Path is C:\\data\\input
+        Output: Path is C:\\\\data\\\\input
 
     Args:
-        s: Raw string value to escape.
+        s: Raw comment string.
 
     Returns:
-        A SQL-safe string with single quotes escaped.
+        SQL-safe string for use inside COMMENT "..."
     """
-    return s.replace("'", "''")
+    return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _try_alter_column_comment(
@@ -43,7 +57,7 @@ def _try_alter_column_comment(
     logger: logging.Logger,
 ) -> bool:
     """
-    Attempt to set a column comment using supported Spark SQL syntaxes.
+    Attempt to set a column comment using Spark SQL.
 
     Uses the `ALTER TABLE ... ALTER COLUMN ... COMMENT` syntax to update
     column-level metadata for an existing Spark/Delta table.
@@ -62,7 +76,7 @@ def _try_alter_column_comment(
     c_sql = _escape_sql_string(comment)
 
     try:
-        spark.sql(f"ALTER TABLE {full_table_name} ALTER COLUMN `{col}` COMMENT '{c_sql}'")
+        spark.sql(f'ALTER TABLE {full_table_name} ALTER COLUMN `{col}` COMMENT "{c_sql}"')
         return True
     except Exception:
         logger.exception(f"Failed to set comment for {full_table_name}.{col}")

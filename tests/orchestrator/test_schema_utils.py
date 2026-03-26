@@ -682,3 +682,45 @@ def test_parse_schema_structured_raises_on_invalid_map_definition():
 
     with pytest.raises(ValueError, match=r"Invalid MAP definition|unclosed '<'"):
         parse_schema_structured(schema, logger)
+
+
+def test_apply_schema_columns_casts_existing_array_column_via_complex_type_fallback():
+    """Casts an already-typed array column through the complex-type fallback branch."""
+    spark = SparkSession.builder.master("local[1]").appName("test").getOrCreate()
+    logger = MagicMock()
+
+    df = spark.createDataFrame([([1, 2, 3],)], ["tags"])
+
+    schema_defs = parse_schema_sql("tags ARRAY<INT>", logger)
+
+    df2, meta = apply_schema_columns(df, schema_defs, logger)
+
+    assert df2.collect()[0]["tags"] == [1, 2, 3]
+    assert meta == {"dropped_columns": []}
+
+
+def test_parse_schema_sql_map_decimal_key_hits_paren_tracking():
+    """Parses MAP with DECIMAL key to exercise parenthesis tracking in key parsing."""
+    logger = MagicMock()
+
+    result = parse_schema_sql("attrs MAP<DECIMAL(10,2),STRING>", logger)
+
+    assert result[0][0] == "attrs"
+    assert isinstance(result[0][1], MapType)
+    assert isinstance(result[0][1].keyType, DecimalType)
+    assert result[0][1].keyType.precision == 10
+    assert result[0][1].keyType.scale == 2
+    assert isinstance(result[0][1].valueType, StringType)
+
+
+def test_parse_schema_sql_map_array_key_hits_angle_tracking():
+    """Parses MAP with ARRAY key to exercise angle bracket tracking in key parsing."""
+    logger = MagicMock()
+
+    result = parse_schema_sql("attrs MAP<ARRAY<INT>,STRING>", logger)
+
+    assert result[0][0] == "attrs"
+    assert isinstance(result[0][1], MapType)
+    assert isinstance(result[0][1].keyType, ArrayType)
+    assert isinstance(result[0][1].keyType.elementType, IntegerType)
+    assert isinstance(result[0][1].valueType, StringType)

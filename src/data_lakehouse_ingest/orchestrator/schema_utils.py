@@ -9,7 +9,6 @@ for DECIMAL(p,s), ARRAY<T>, and MAP<K,V> types.
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql.functions import col, from_json, to_json
-from pyspark.sql.types import StructType
 from pyspark.sql.types import (
     StringType,
     IntegerType,
@@ -23,6 +22,7 @@ from pyspark.sql.types import (
     DataType,
     ArrayType,
     MapType,
+    StructType,
 )
 
 import logging
@@ -108,7 +108,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
             precision_str, scale_str = inner.split(",")
             precision = int(precision_str.strip())
             scale = int(scale_str.strip())
-        except Exception as exc:
+        except ValueError as exc:
             logger.error(f"Invalid DECIMAL definition '{dt_raw}': {exc}")
             raise ValueError(f"Invalid DECIMAL definition '{dt_raw}'") from exc
         return DecimalType(precision=precision, scale=scale)
@@ -117,7 +117,11 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
     array_match = re.match(r"^ARRAY<(.+)>$", dt)
     if array_match:
         inner_type_raw = array_match.group(1).strip()
-        inner_type = _to_pyspark_type(inner_type_raw, logger, context=context)  # recursive
+        try:
+            inner_type = _to_pyspark_type(inner_type_raw, logger, context=context) # recursive
+        except ValueError as exc:
+            logger.error(f"Invalid ARRAY definition '{dt_raw}': {exc}")
+            raise ValueError(f"Invalid ARRAY definition '{dt_raw}'") from exc
         return ArrayType(inner_type)
 
     # MAP<K,V>
@@ -128,7 +132,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
             key_type_raw, value_type_raw = _split_top_level_map_types(inner)
             key_type = _to_pyspark_type(key_type_raw, logger, context=context)
             value_type = _to_pyspark_type(value_type_raw, logger, context=context)
-        except Exception as exc:
+        except ValueError as exc:
             logger.error(f"Invalid MAP definition '{dt_raw}': {exc}")
             raise ValueError(f"Invalid MAP definition '{dt_raw}'") from exc
 

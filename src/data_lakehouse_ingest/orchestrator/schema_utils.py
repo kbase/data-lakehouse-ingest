@@ -118,7 +118,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
     if array_match:
         inner_type_raw = array_match.group(1).strip()
         try:
-            inner_type = _to_pyspark_type(inner_type_raw, logger, context=context) # recursive
+            inner_type = _to_pyspark_type(inner_type_raw, logger, context=context)  # recursive
         except ValueError as exc:
             logger.error(f"Invalid ARRAY definition '{dt_raw}': {exc}")
             raise ValueError(f"Invalid ARRAY definition '{dt_raw}'") from exc

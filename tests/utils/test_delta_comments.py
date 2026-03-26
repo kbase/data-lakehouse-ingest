@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 from data_lakehouse_ingest.utils.delta_comments import (
     _escape_sql_string,
     _try_alter_column_comment,
@@ -41,15 +43,17 @@ class FakeSpark:
         return type("DF", (), {"collect": lambda _self: []})()
 
 
-def test_escape_sql_string_preserves_single_quotes_for_double_quoted_sql_literals():
-    """Single quotes do not need escaping inside COMMENT "..." strings."""
-    assert _escape_sql_string("Bob's column") == "Bob's column"
-
-
-def test_escape_sql_string_escapes_double_quotes_and_backslashes():
-    """Escapes double quotes and backslashes for safe use inside COMMENT "..."."""
-    assert _escape_sql_string('Column "status"') == 'Column \\"status\\"'
-    assert _escape_sql_string(r"C:\data\input") == r"C:\\data\\input"
+@pytest.mark.parametrize(
+    ("raw_value", "expected"),
+    [
+        ("Bob's column", "Bob's column"),
+        ('Column "status"', 'Column \\"status\\"'),
+        (r"C:\data\input", r"C:\\data\\input"),
+    ],
+)
+def test_escape_sql_string_handles_quotes_and_backslashes(raw_value, expected):
+    """Escapes only the characters that must be escaped for COMMENT "..." strings."""
+    assert _escape_sql_string(raw_value) == expected
 
 
 def test_try_alter_column_comment_uses_alter_column_syntax_and_double_quoted_comment():

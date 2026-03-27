@@ -48,6 +48,9 @@ source .venv/bin/activate
 
 ## Usage
 
+For a complete guide on creating configuration files, see:
+[Config JSON Tutorial](tutorial-config-json.md)
+
 The following example demonstrates a full ingestion workflow using Spark and MinIO.
 
 ```python

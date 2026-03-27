@@ -2,6 +2,26 @@
 
 ### Creating JSON Configurations for the data lakehouse ingest Library
 
+## Table of Contents
+
+1. [Basic Structure of the Config File](#1-basic-structure-of-the-config-file)
+2. [Tenant and Namespace Behavior](#2-tenant-and-namespace-behavior)
+3. [Paths Configuration (Optional)](#3-paths-configuration-optional)
+4. [Default Reader Options (Optional)](#4-default-reader-options-optional)
+5. [Defining Tables](#5-defining-tables)
+6. [Enabling or Skipping Tables](#6-enabling-or-skipping-tables)
+7. [Schema Definition Using SQL](#7-schema-definition-using-sql)
+8. [Structured Schema with Metadata](#8-structured-schema-with-metadata)
+9. [Handling Extra Columns](#9-handling-extra-columns)
+10. [Write Modes](#10-write-modes)
+11. [Bronze Path Substitution](#11-bronze-path-substitution)
+12. [Using Only File Names](#12-using-only-file-names)
+13. [Using Wildcards](#13-using-wildcards)
+14. [Full Example Configuration](#14-full-example-configuration)
+15. [Running the Ingestion](#15-running-the-ingestion)
+16. [Passing DataFrames to `ingest()`](#16-passing-dataframes-to-ingest)
+17. [Best Practices](#17-best-practices)
+
 The data lakehouse ingest library allows users to load data into **Delta Lake tables** in the BER Data Lakehouse using a **simple JSON configuration file**.
 
 Instead of writing Spark ingestion code manually, users define:
@@ -197,7 +217,7 @@ These options instruct Spark to:
 * support multi-line records
 * treat the entire quoted section as a single column
 
-By defining these options in defaults, they automatically apply to all tables using the csv format unless overridden in a specific table configuration. This makes it easier to configure complex parsing behavior once, rather than repeating the same Spark reader options for every table definition.
+By defining these options in defaults, they automatically apply to all tables using the csv format unless overridden in a specific table configuration. This avoids repeating the same Spark reader options in every table definition.
 
 <br>
 <br>
@@ -363,6 +383,48 @@ Advantages of structured schema:
 * column comments
 * richer metadata
 * AI-readiness for data catalogs
+
+---
+
+### Handling Quotes and Special Characters in Comments
+
+Since the config content must be valid JSON, certain characters inside `comment` values must be escaped.
+
+### Example with escape characters
+
+```json
+"schema": [
+  {
+    "column": "subject",
+    "type": "string",
+    "nullable": false,
+    "comment": "IRI of the \"subject node\" in the RDF statement"
+  },
+  {
+    "column": "object",
+    "type": "string",
+    "nullable": false,
+    "comment": "File path example: C:\\data\\input"
+  },
+  {
+    "column": "prefix",
+    "type": "string",
+    "nullable": false,
+    "comment": "Prefix label's used in CURIEs"
+  }
+]
+```
+
+### Rules
+
+* Use `\"` for double quotes inside comments
+* Use `\\` for backslashes (e.g., Windows paths)
+* Apostrophes (`'`) do **not** need escaping
+
+### Result after ingestion
+
+* `\"subject node\"` → `"subject node"`
+* `C:\\data\\input` → `C:\data\input`
 
 <br>
 <br>
@@ -614,7 +676,132 @@ The ingestion framework will:
 
 ---
 
-# 16. Best Practices
+# 16. Passing DataFrames to `ingest()`
+
+In addition to reading source files from `bronze_path`, the ingestion framework can also ingest one or more **preloaded Spark DataFrames**.
+
+This is useful when:
+
+* you already read and cleaned the data in a notebook
+* you want to override file-based input for only selected tables
+* you want to mix DataFrame input and file-based input in the same ingestion run
+
+### Example: Read source files into DataFrames first
+
+```python
+base_path = "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/bronze/run_20250819_020438/tsv_tables"
+
+tables = ["prefix", "entailed_edge", "statements"]
+
+dfs = {
+    name: read_tsv(f"{base_path}/{name}.tsv")
+    for name in tables
+}
+
+df_prefix = dfs["prefix"]
+df_entailed_edge = dfs["entailed_edge"]
+df_statements = dfs["statements"]
+```
+
+### Example Config
+
+This example keeps the config small and shows that some tables can still have `bronze_path` even when a DataFrame is supplied.
+
+```python
+cfg_path = r'''
+{
+  "dataset": "ontology_source_62",
+  "paths": {
+    "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/bronze/run_20250819_020438/tsv_tables"
+  },
+  "defaults": {
+    "tsv": { "header": true, "delimiter": "\t", "inferSchema": false }
+  },
+  "tables": [
+    {
+      "name": "prefix",
+      "enabled": true,
+      "partition_by": null,
+      "schema": [
+        {
+          "column": "prefix",
+          "type": "string",
+          "nullable": false,
+          "comment": "Prefix label used in CURIEs"
+        },
+        {
+          "column": "base",
+          "type": "string",
+          "nullable": false,
+          "comment": "Base IRI associated with the prefix"
+        }
+      ]
+    },
+    {
+      "name": "entailed_edge",
+      "enabled": true,
+      "partition_by": null,
+      "schema_sql": "subject STRING, predicate STRING, object STRING",
+      "bronze_path": "${bronze_base}/entailed_edge.tsv"
+    },
+    {
+      "name": "statements",
+      "enabled": true,
+      "partition_by": null,
+      "schema_sql": "subject STRING, predicate STRING, object STRING, value STRING, datatype STRING, language STRING",
+      "bronze_path": "statements.tsv"
+    }
+  ]
+}
+'''
+```
+
+### Example: Pass one DataFrame
+
+Here, only the `prefix` table is supplied as a DataFrame. The remaining tables are still read from the file paths defined in the config.
+
+```python
+report = ingest(cfg_path, dataframes={"prefix": df_prefix})
+report
+```
+
+### Example: Pass multiple DataFrames
+
+Here, all three tables are supplied as DataFrames.
+
+```python
+report = ingest(
+    cfg_path,
+    dataframes={
+        "prefix": df_prefix,
+        "entailed_edge": df_entailed_edge,
+        "statements": df_statements
+    }
+)
+report
+```
+
+### How it works
+
+When a table name is present in the `dataframes` argument, the ingestion framework uses that DataFrame as the input source for that table.
+
+For tables not included in `dataframes`, the framework falls back to reading from `bronze_path` in the config.
+
+This allows you to combine both approaches in a single ingestion run.
+
+### Notes
+
+* The keys in the `dataframes` dictionary must match the table `name` values in the config.
+* Schema enforcement still applies, even when the input comes from a DataFrame.
+* If the DataFrame contains extra columns not defined in the schema, those columns are dropped during ingestion.
+* This pattern is especially useful in Jupyter notebooks when you want to inspect or transform data before loading it into Delta tables.
+
+<br>
+<br>
+
+---
+
+# 17. Best Practices
 
 - Store configs alongside datasets in the Bronze layer
 - Use `${bronze_base}` to avoid repeating paths

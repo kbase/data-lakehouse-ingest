@@ -172,6 +172,16 @@ def test_parse_schema_sql_nested_array():
     assert isinstance(result[0][1].elementType, ArrayType)
 
 
+def test_parse_schema_sql_raises_on_invalid_array_definition():
+    """Raises ValueError for an ARRAY definition with an invalid inner type."""
+    logger = MagicMock()
+
+    with pytest.raises(ValueError, match=r"Invalid ARRAY definition"):
+        parse_schema_sql("tags ARRAY<SUPERSTRING>", logger)
+
+    logger.error.assert_called()
+
+
 def test_parse_schema_sql_decimal_parses_success():
     logger = MagicMock()
 
@@ -724,3 +734,32 @@ def test_parse_schema_sql_map_array_key_hits_angle_tracking():
     assert isinstance(result[0][1].keyType, ArrayType)
     assert isinstance(result[0][1].keyType.elementType, IntegerType)
     assert isinstance(result[0][1].valueType, StringType)
+
+
+def test_parse_schema_sql_map_string_nested_map():
+    """Parses MAP<STRING,MAP<STRING,INT>> into a nested Spark MapType."""
+    logger = MagicMock()
+
+    result = parse_schema_sql("attrs MAP<STRING,MAP<STRING,INT>>", logger)
+
+    assert result[0][0] == "attrs"
+    assert isinstance(result[0][1], MapType)
+    assert isinstance(result[0][1].keyType, StringType)
+    assert isinstance(result[0][1].valueType, MapType)
+    assert isinstance(result[0][1].valueType.keyType, StringType)
+    assert isinstance(result[0][1].valueType.valueType, IntegerType)
+
+
+def test_parse_schema_structured_supports_nested_map_of_map_type():
+    """Parses structured schema entries containing MAP<STRING,MAP<STRING,INT>>."""
+    logger = MagicMock()
+    schema = [{"column": "attrs", "type": "MAP<STRING,MAP<STRING,INT>>"}]
+
+    parsed = parse_schema_structured(schema, logger)
+
+    assert parsed[0][0] == "attrs"
+    assert isinstance(parsed[0][1], MapType)
+    assert isinstance(parsed[0][1].keyType, StringType)
+    assert isinstance(parsed[0][1].valueType, MapType)
+    assert isinstance(parsed[0][1].valueType.keyType, StringType)
+    assert isinstance(parsed[0][1].valueType.valueType, IntegerType)

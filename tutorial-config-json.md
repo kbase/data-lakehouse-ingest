@@ -646,7 +646,7 @@ The configuration JSON can be provided to the ingestion framework in two ways:
 You can define the configuration directly in a Python variable.
 
 ```python
-cfg = """
+config_json = """
 {
   "dataset": "ontology_test1",
   "paths": {
@@ -662,7 +662,7 @@ cfg = """
 }
 """
 
-report = ingest(cfg)
+report = ingest(config_json)
 
 report
 ```
@@ -682,9 +682,9 @@ s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/config-js
 You can then run ingestion by providing the path:
 
 ```python
-cfg_path = "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/config-json/ontology_config.json"
+config_json_path = "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/ontology-source/config-json/ontology_config.json"
 
-report = ingest(cfg_path)
+report = ingest(config_json_path)
 
 report
 ```
@@ -736,10 +736,10 @@ df_statements = dfs["statements"]
 
 ### Example Config
 
-This example keeps the config small and shows that some tables can still have `bronze_path` even when a DataFrame is supplied.
+This example keeps the config small and shows that some tables can still include a `bronze_path` metadata entry even when a DataFrame is supplied.
 
 ```python
-cfg_path = r'''
+config_json = r'''
 {
   "dataset": "ontology_source_62",
   "paths": {
@@ -792,7 +792,7 @@ cfg_path = r'''
 Here, only the `prefix` table is supplied as a DataFrame. The remaining tables are still read from the file paths defined in the config.
 
 ```python
-report = ingest(cfg_path, dataframes={"prefix": df_prefix})
+report = ingest(config_json, dataframes={"prefix": df_prefix})
 report
 ```
 
@@ -802,7 +802,7 @@ Here, all three tables are supplied as DataFrames.
 
 ```python
 report = ingest(
-    cfg_path,
+    config_json,
     dataframes={
         "prefix": df_prefix,
         "entailed_edge": df_entailed_edge,
@@ -824,7 +824,7 @@ This allows you to combine both approaches in a single ingestion run.
 
 * The keys in the `dataframes` dictionary must match the table `name` values in the config.
 * Schema enforcement still applies, even when the input comes from a DataFrame.
-* If the DataFrame contains extra columns not defined in the schema, those columns are dropped during ingestion.
+* If the DataFrame contains extra columns not defined in the schema, those columns are dropped during ingestion. Dropped columns are explicitly logged as part of the ingestion pipeline logs for traceability and debugging.
 * This pattern is especially useful in Jupyter notebooks when you want to inspect or transform data before loading it into Delta tables.
 
 <br>

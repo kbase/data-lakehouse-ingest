@@ -63,7 +63,6 @@ cfg_path = r'''
   "tenant": "kbase",
   "dataset": "ke_pangenome",
   "paths": {
-    "data_plane": "s3a://cdm-lake/",
     "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/bronze/",
   },
   "defaults": {
@@ -124,7 +123,19 @@ TIMESTAMP
 
 ### Complex Types
 ```
-ARRAY
+ARRAY<T>
+MAP<K,V>
+```
+
+`ARRAY<T>` — Array of elements of type T (e.g., `ARRAY<STRING>`, `ARRAY<INT>`)  
+`MAP<K,V>` — Key-value map where K is the key type and V is the value type
+
+Nested combinations such as the following are also supported:
+
+```
+ARRAY<MAP<STRING,INT>>
+MAP<STRING,ARRAY<INT>>
+MAP<STRING,MAP<STRING,INT>>
 ```
 ---
 

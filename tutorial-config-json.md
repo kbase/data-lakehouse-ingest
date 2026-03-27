@@ -347,8 +347,39 @@ TIMESTAMP
 ### Complex Types
 
 ```text
-ARRAY
+ARRAY<T>
+MAP<K,V>
 ```
+
+Where:
+
+- `T` represents the array element type
+- `K` represents the map key type
+- `V` represents the map value type
+
+Examples:
+
+```text
+ARRAY<STRING>
+ARRAY<INT>
+MAP<STRING,INT>
+MAP<STRING,STRING>
+```
+
+Nested combinations are also supported, for example:
+
+```text
+ARRAY<MAP<STRING,INT>>
+MAP<STRING,ARRAY<INT>>
+MAP<STRING,MAP<STRING,INT>>
+```
+
+Example:
+
+```json
+"schema_sql": "gene_id STRING, attributes MAP<STRING,STRING>, tags ARRAY<STRING>"
+```
+
 <br>
 <br>
 

@@ -3,12 +3,12 @@ Schema utilities for the Data Lakehouse Ingest framework.
 
 Provides helpers to resolve table schemas, parse SQL-style schema definitions,
 and align DataFrame columns using governed Spark DataTypes, including support
-for DECIMAL(p,s) and ARRAY<T> types.
+for DECIMAL(p,s), ARRAY<T>, and MAP<K,V> types.
 """
 
 from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import col, from_json
+from pyspark.sql.functions import col, from_json, to_json
 from pyspark.sql.types import (
     StringType,
     IntegerType,
@@ -21,6 +21,8 @@ from pyspark.sql.types import (
     DecimalType,
     DataType,
     ArrayType,
+    MapType,
+    StructType,
 )
 
 import logging
@@ -28,6 +30,41 @@ from enum import Enum
 import re
 from dataclasses import dataclass
 from typing import Any
+
+
+def _split_top_level_map_types(inner: str) -> tuple[str, str]:
+    """
+    Split the inner portion of MAP<K,V> into key and value type strings.
+
+    Splits only on the first comma found at top level, ignoring commas inside
+    nested parentheses or angle brackets.
+
+    Example:
+        "STRING, ARRAY<DECIMAL(10,2)>"
+        -> ("STRING", "ARRAY<DECIMAL(10,2)>")
+    """
+    depth_paren = 0
+    depth_angle = 0
+
+    for i, ch in enumerate(inner):
+        if ch == "(":
+            depth_paren += 1
+        elif ch == ")":
+            depth_paren -= 1
+        elif ch == "<":
+            depth_angle += 1
+        elif ch == ">":
+            depth_angle -= 1
+        elif ch == "," and depth_paren == 0 and depth_angle == 0:
+            left = inner[:i].strip()
+            right = inner[i + 1 :].strip()
+
+            if not left or not right:
+                raise ValueError(f"Invalid MAP<K,V> definition: '{inner}'")
+
+            return left, right
+
+    raise ValueError(f"Invalid MAP<K,V> definition: '{inner}'")
 
 
 def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> DataType:
@@ -44,6 +81,8 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
           e.g., DECIMAL(10,2)
       - ARRAY<T> (recursive, supports nesting):
           e.g., ARRAY<STRING>, ARRAY<DOUBLE>, ARRAY<ARRAY<INT>>
+      - MAP<K,V> (recursive, supports nesting):
+          e.g., MAP<STRING, INT>, MAP<STRING, ARRAY<DOUBLE>>
 
     Args:
         dt_raw: The raw type string from config (e.g., "int", "DECIMAL(10,2)", "ARRAY<STRING>").
@@ -57,6 +96,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
         ValueError:
             - If DECIMAL(p,s) syntax is invalid.
             - If ARRAY<T> syntax is invalid.
+            - If MAP<K,V> syntax is invalid.
             - If the type is unsupported.
     """
     dt = dt_raw.upper().strip()
@@ -68,7 +108,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
             precision_str, scale_str = inner.split(",")
             precision = int(precision_str.strip())
             scale = int(scale_str.strip())
-        except Exception as exc:
+        except ValueError as exc:
             logger.error(f"Invalid DECIMAL definition '{dt_raw}': {exc}")
             raise ValueError(f"Invalid DECIMAL definition '{dt_raw}'") from exc
         return DecimalType(precision=precision, scale=scale)
@@ -77,8 +117,26 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
     array_match = re.match(r"^ARRAY<(.+)>$", dt)
     if array_match:
         inner_type_raw = array_match.group(1).strip()
-        inner_type = _to_pyspark_type(inner_type_raw, logger, context=context)  # recursive
+        try:
+            inner_type = _to_pyspark_type(inner_type_raw, logger, context=context)  # recursive
+        except ValueError as exc:
+            logger.error(f"Invalid ARRAY definition '{dt_raw}': {exc}")
+            raise ValueError(f"Invalid ARRAY definition '{dt_raw}'") from exc
         return ArrayType(inner_type)
+
+    # MAP<K,V>
+    map_match = re.match(r"^MAP<(.+)>$", dt)
+    if map_match:
+        inner = map_match.group(1).strip()
+        try:
+            key_type_raw, value_type_raw = _split_top_level_map_types(inner)
+            key_type = _to_pyspark_type(key_type_raw, logger, context=context)
+            value_type = _to_pyspark_type(value_type_raw, logger, context=context)
+        except ValueError as exc:
+            logger.error(f"Invalid MAP definition '{dt_raw}': {exc}")
+            raise ValueError(f"Invalid MAP definition '{dt_raw}'") from exc
+
+        return MapType(key_type, value_type)
 
     # Primitive types
     mapping: dict[str, DataType] = {
@@ -98,7 +156,7 @@ def _to_pyspark_type(dt_raw: str, logger: logging.Logger, *, context: str) -> Da
         logger.error(
             f"Unsupported data type '{dt_raw}' in {context} "
             "(expected STRING, INT, INTEGER, BIGINT, LONG, DOUBLE, FLOAT, BOOLEAN, "
-            "DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>)."
+            "DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>, MAP<K,V>)."
         )
         raise ValueError(f"Unsupported data type '{dt_raw}' in {context}.")
 
@@ -342,12 +400,12 @@ def apply_schema_columns(
          - Casts each column to its declared Spark DataType.
          - Supports primitive and complex types, including:
            STRING, INT/INTEGER, BIGINT/LONG, DOUBLE, FLOAT, BOOLEAN,
-           DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>.
+           DATE, TIMESTAMP, DECIMAL(p,s), ARRAY<T>, MAP<K,V>.
 
       4. **Array conversion**
-         - For ARRAY<T> columns, converts JSON-encoded string values into
-           proper Spark arrays using `from_json`.
-         - Supports nested array types (e.g., ARRAY<ARRAY<INT>>).
+         - For ARRAY<T> and MAP<K,V> columns, converts JSON-encoded string values
+           into proper Spark complex types using `from_json`.
+         - Supports nested array/map combinations.
          - Note: Input values for ARRAY<T> are expected to be JSON strings;
            other encodings are not automatically converted.
 
@@ -419,9 +477,18 @@ def apply_schema_columns(
 
     # Enforce ordering + type casting
     projected_cols = []
+    source_types = {field.name: field.dataType for field in df.schema.fields}
+
     for col_name, col_type in schema_defs:
-        if isinstance(col_type, ArrayType):
-            projected_cols.append(from_json(col(col_name), col_type).alias(col_name))
+        source_type = source_types.get(col_name)
+
+        if isinstance(col_type, (ArrayType, MapType)):
+            if isinstance(source_type, StringType):
+                projected_cols.append(from_json(col(col_name), col_type).alias(col_name))
+            elif isinstance(source_type, StructType) and isinstance(col_type, MapType):
+                projected_cols.append(from_json(to_json(col(col_name)), col_type).alias(col_name))
+            else:
+                projected_cols.append(col(col_name).cast(col_type).alias(col_name))
         else:
             projected_cols.append(col(col_name).cast(col_type).alias(col_name))
 
@@ -458,6 +525,10 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
               ARRAY<STRING>
               ARRAY<DOUBLE>
               ARRAY<ARRAY<INT>>
+        • MAP<K,V> with recursive parsing, including nested maps/arrays
+              MAP<STRING, INT>
+              MAP<STRING, ARRAY<DOUBLE>>
+              ARRAY<MAP<STRING, INT>>
 
     Parsing behavior:
         • Leading/trailing whitespace around tokens is ignored.
@@ -482,7 +553,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         ValueError:
             • If any column definition is malformed.
             • If a data type is unsupported.
-            • If DECIMAL(p,s) or ARRAY<T> syntax is invalid.
+            • If DECIMAL(p,s) ARRAY<T>, or MAP<K,V> syntax is invalid.
             • If schema_sql contains unmatched or unclosed delimiters in types (e.g., DECIMAL(...), ARRAY<...>).
 
     Examples:
@@ -504,7 +575,7 @@ def parse_schema_sql(schema_sql: str, logger: logging.Logger) -> list[tuple[str,
         Split a SQL-style schema string into column definitions.
 
         Commas are treated as separators **only at top level**; commas inside
-        DECIMAL(p,s) or ARRAY<T> (including nested arrays) are ignored.
+        DECIMAL(p,s), ARRAY<T>, or MAP<K,V> (including nested complex types) are ignored.
 
         Args:
             schema_sql (str): SQL-style schema definition string.
@@ -605,7 +676,7 @@ def parse_schema_structured(
       - Type must be provided under "type".
       - "nullable" (bool) and "comment" (string) are optional when provided.
       - Types support the same set as SQL schemas via _to_pyspark_type(...):
-        primitives, DECIMAL(p,s), ARRAY<T> (including nested arrays)
+        primitives, DECIMAL(p,s), ARRAY<T>, and MAP<K,V> (including nested complex types)
 
     Args:
         schema: Structured schema list-of-maps.

@@ -9,6 +9,7 @@ report suitable for logging, auditing, and ingestion metadata.
 """
 
 import logging
+import json
 from typing import Any
 
 from pyspark.sql import SparkSession
@@ -148,6 +149,9 @@ def apply_comments_from_table_schema(
     for coldef in table_schema:
         col = coldef.get("column") or coldef.get("name")
         comment = coldef.get("comment")
+
+        if isinstance(comment, dict):
+            comment = json.dumps(comment)
 
         if not col:
             skipped += 1

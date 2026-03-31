@@ -753,7 +753,7 @@ def parse_schema_structured(
         # Optional: comment
         if "comment" in coldef:
             comment_val = coldef["comment"]
-            if comment_val is not None and not isinstance(comment_val, str):
+            if comment_val is not None and not isinstance(comment_val, (str, dict)):
                 raise ValueError(
                     f"Schema entry for '{col_name}' has invalid 'comment' "
                     f"(expected string, got {type(comment_val).__name__})"

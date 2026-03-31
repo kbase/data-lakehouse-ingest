@@ -273,7 +273,7 @@ class ConfigLoader:
                             f"Table '{table_name}' schema entry for column "
                             f"'{col_name}' has non-boolean 'nullable'."
                         )
-                    if "comment" in coldef and not isinstance(coldef["comment"], str):
+                    if "comment" in coldef and not isinstance(coldef["comment"], (str, dict)):
                         validation_errors.append(
                             f"Table '{table_name}' schema entry for column "
                             f"'{col_name}' has non-string 'comment'."

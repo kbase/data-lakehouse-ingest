@@ -151,7 +151,7 @@ def apply_comments_from_table_schema(
         comment = coldef.get("comment")
 
         if isinstance(comment, dict):
-            comment = json.dumps(comment)
+            comment = json.dumps(comment, ensure_ascii=False)
 
         if not col:
             skipped += 1

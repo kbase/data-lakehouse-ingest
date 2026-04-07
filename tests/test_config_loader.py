@@ -94,6 +94,52 @@ def test_load_from_s3_requires_minio_client(caplog):
     assert "MinIO client must be provided for s3a:// paths." in caplog.text
 
 
+def test_load_from_s3_invalid_path_format():
+    """Rejects malformed s3a:// config paths that do not include bucket/key."""
+    mock_minio = MagicMock()
+
+    with pytest.raises(ValueError, match=r"Invalid s3a:// path format"):
+        ConfigLoader("s3a://bucket-only", minio_client=mock_minio)
+
+
+# ---------------------------------------------------------------------
+# Local file success & failure paths
+# ---------------------------------------------------------------------
+
+
+def test_load_from_local_file_not_found():
+    """Raises FileNotFoundError for missing config files inside the safe directory."""
+    safe_file = Path.home() / ".data_lakehouse" / "configs" / "does_not_exist.json"
+
+    with pytest.raises(FileNotFoundError):
+        ConfigLoader(str(safe_file))
+
+
+def test_load_from_local_file_invalid_json(caplog):
+    """Raises JSONDecodeError when a local config file contains invalid JSON."""
+    safe_file = Path.home() / ".data_lakehouse" / "configs" / "bad_config.json"
+    safe_file.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        safe_file.write_text("{ bad json }", encoding="utf-8")
+
+        with caplog.at_level(logging.ERROR), pytest.raises(json.JSONDecodeError):
+            ConfigLoader(str(safe_file))
+
+        assert f"Invalid JSON in config file {safe_file}" in caplog.text
+    finally:
+        if safe_file.exists():
+            safe_file.unlink()
+
+
+def test_load_from_local_file_rejects_unsafe_path():
+    """Rejects config paths outside the safe config directory."""
+    unsafe_path = Path.cwd() / "outside_config.json"
+
+    with pytest.raises(ValueError, match=r"Unsafe or out-of-sandbox config path detected"):
+        ConfigLoader(str(unsafe_path))
+
+
 # ---------------------------------------------------------------------
 # MinIO read success & failure paths
 # ---------------------------------------------------------------------
@@ -134,6 +180,17 @@ def test_load_from_s3_failure_s3error(caplog):
         ConfigLoader("s3a://test-bucket/config.json", minio_client=mock_minio)
 
     assert "Failed to read s3a://test-bucket/config.json from MinIO" in caplog.text
+
+
+def test_load_from_s3_unexpected_exception(caplog):
+    """Raises when an unexpected exception occurs while reading config from MinIO."""
+    mock_minio = MagicMock()
+    mock_minio.get_object.side_effect = Exception("boom")
+
+    with caplog.at_level(logging.ERROR), pytest.raises(Exception, match="boom"):
+        ConfigLoader("s3a://test-bucket/config.json", minio_client=mock_minio)
+
+    assert "Unexpected error while reading s3a://test-bucket/config.json from MinIO" in caplog.text
 
 
 # ---------------------------------------------------------------------
@@ -523,3 +580,74 @@ def test_get_bronze_path_requires_string_bronze_path(minimal_config, bad_bronze_
         match=r"'bronze_path' must be defined as a string for table 'browser_cazy_family'\.",
     ):
         loader.get_bronze_path("browser_cazy_family")
+
+
+def test_get_csv_defaults_returns_configured_values(minimal_config):
+    """Returns configured CSV defaults from the config."""
+    loader = ConfigLoader(minimal_config)
+
+    defaults = loader.get_csv_defaults()
+
+    assert defaults["header"] is True
+    assert defaults["delimiter"] == ","
+    assert defaults["inferSchema"] is False
+
+
+def test_get_tables_skips_disabled_tables_and_logs(minimal_config, caplog):
+    """Skips disabled tables and logs how many were excluded."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        cfg["tables"][0],
+        {
+            "name": "disabled_table",
+            "enabled": False,
+            "schema_sql": "id STRING",
+            "bronze_path": "s3a://bucket/bronze/disabled.csv",
+        },
+    ]
+
+    with caplog.at_level(logging.INFO):
+        loader = ConfigLoader(cfg)
+        tables = loader.get_tables()
+
+    assert len(tables) == 1
+    assert tables[0]["name"] == "browser_cazy_family"
+    assert "1 table(s) are disabled and will be skipped." in caplog.text
+
+
+def test_is_table_enabled_returns_expected_values(minimal_config):
+    """Returns correct enabled status for present and missing tables."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        {
+            "name": "enabled_table",
+            "enabled": True,
+            "schema_sql": "id STRING",
+            "bronze_path": "file1.csv",
+        },
+        {
+            "name": "disabled_table",
+            "enabled": False,
+            "schema_sql": "id STRING",
+            "bronze_path": "file2.csv",
+        },
+    ]
+
+    loader = ConfigLoader(cfg)
+
+    assert loader.is_table_enabled("enabled_table") is True
+    assert loader.is_table_enabled("disabled_table") is False
+    assert loader.is_table_enabled("missing_table") is False
+
+
+def test_get_defaults_for_returns_direct_format_defaults(minimal_config):
+    """Returns format defaults directly when explicitly defined in config."""
+    cfg = minimal_config.copy()
+    cfg["defaults"] = {
+        "json": {"multiline": True},
+        "csv": {"header": True, "delimiter": ",", "inferSchema": False},
+    }
+
+    loader = ConfigLoader(cfg)
+
+    assert loader.get_defaults_for("json") == {"multiline": True}

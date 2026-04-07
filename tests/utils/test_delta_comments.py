@@ -138,3 +138,72 @@ def test_apply_comments_marks_failed_when_alter_comment_fails_for_a_column():
     assert report["failed"] == 1
     assert report["details"][0]["status"] == "failed"
     assert report["details"][0]["column"] == "gene_id"
+
+
+def test_apply_comments_serializes_dict_comment_and_applies_it():
+    """Serializes dict comments to JSON and applies them as escaped SQL column comments."""
+    spark = FakeSpark()
+    schema = [
+        {
+            "column": "gene_id",
+            "comment": {
+                "description": "Gene identifier",
+                "source": "/api/v1",
+                "flags": {"demo": True},
+            },
+        }
+    ]
+
+    report = apply_comments_from_table_schema(
+        spark, "db.tbl", schema, logger=logging.getLogger("test")
+    )
+
+    assert report["status"] == "success"
+    assert report["applied"] == 1
+    assert report["skipped"] == 0
+    assert report["failed"] == 0
+
+    sql_text = spark.sql_calls[0]
+    assert 'ALTER TABLE db.tbl ALTER COLUMN `gene_id` COMMENT "' in sql_text
+    assert '\\"description\\": \\"Gene identifier\\"' in sql_text
+    assert '\\"source\\": \\"/api/v1\\"' in sql_text
+    assert '\\"flags\\": {\\"demo\\": true}' in sql_text
+
+
+def test_apply_comments_preserves_unicode_in_dict_comment():
+    """Preserves Unicode characters when serializing dict comments to JSON."""
+    spark = FakeSpark()
+    schema = [
+        {
+            "column": "species",
+            "comment": {"description": "Café naïve β-cell 漢字"},
+        }
+    ]
+
+    report = apply_comments_from_table_schema(
+        spark, "db.tbl", schema, logger=logging.getLogger("test")
+    )
+
+    assert report["status"] == "success"
+    sql_text = spark.sql_calls[0]
+    assert "Café naïve β-cell 漢字" in sql_text
+    assert "\\u" not in sql_text
+
+
+def test_apply_comments_skips_non_string_non_dict_comment():
+    """Skips comments that are neither strings nor dicts."""
+    spark = FakeSpark()
+    schema = [
+        {"column": "gene_id", "comment": 123},
+    ]
+
+    report = apply_comments_from_table_schema(
+        spark, "db.tbl", schema, logger=logging.getLogger("test")
+    )
+
+    assert report["status"] == "success"
+    assert report["applied"] == 0
+    assert report["skipped"] == 1
+    assert report["failed"] == 0
+    assert report["details"][0]["status"] == "skipped"
+    assert report["details"][0]["reason"] == "no comment"

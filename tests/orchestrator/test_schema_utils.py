@@ -472,19 +472,21 @@ def test_parse_schema_structured_raises_on_nullable_not_bool():
         parse_schema_structured(schema, logger)
 
 
-def test_parse_schema_structured_raises_on_comment_not_string_or_none():
-    logger = MagicMock()
-    schema = [{"column": "id", "type": "INT", "comment": 123}]  # invalid
-
-    with pytest.raises(ValueError, match=r"invalid 'comment'"):
-        parse_schema_structured(schema, logger)
-
-
 def test_parse_schema_structured_raises_when_column_not_string():
+    """Raises ValueError when a structured schema column name is not a string."""
     logger = MagicMock()
     schema = [{"column": 123, "type": "INT"}]
 
     with pytest.raises(ValueError, match=r"invalid 'column'.*expected string"):
+        parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_raises_on_comment_invalid_type():
+    """Raises ValueError when a structured schema comment has an unsupported type."""
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "comment": 123}]
+
+    with pytest.raises(ValueError, match=r"invalid 'comment'"):
         parse_schema_structured(schema, logger)
 
 
@@ -494,6 +496,17 @@ def test_parse_schema_structured_raises_when_type_not_string():
 
     with pytest.raises(ValueError, match=r"invalid 'type'.*expected string"):
         parse_schema_structured(schema, logger)
+
+
+def test_parse_schema_structured_allows_comment_dict():
+    """Parses a structured schema entry when comment is provided as a dict."""
+    logger = MagicMock()
+    schema = [{"column": "id", "type": "INT", "comment": {"description": "pk"}}]
+
+    parsed = parse_schema_structured(schema, logger)
+
+    assert parsed[0][0] == "id"
+    assert isinstance(parsed[0][1], IntegerType)
 
 
 # ----------------------------------------------------------------------
@@ -617,6 +630,27 @@ def test_resolve_schema_returns_structured_schema_with_map_comment_metadata():
     assert resolved.schema_defs is not None
     assert resolved.schema_defs[0][0] == "attrs"
     assert isinstance(resolved.schema_defs[0][1], MapType)
+
+
+def test_resolve_schema_preserves_dict_comment_metadata():
+    """Resolves structured schema and preserves dict-based column comment metadata."""
+    table = {
+        "name": "t1",
+        "schema": [
+            {"column": "id", "type": "INT", "comment": {"description": "pk"}},
+        ],
+    }
+
+    mock_spark = MagicMock()
+    mock_logger = MagicMock()
+
+    resolved = resolve_schema(mock_spark, table, mock_logger)
+
+    assert resolved.schema_source == SchemaSource.SCHEMA_STRUCTURED
+    assert resolved.comment_metadata == [{"column": "id", "comment": {"description": "pk"}}]
+    assert resolved.schema_defs is not None
+    assert resolved.schema_defs[0][0] == "id"
+    assert isinstance(resolved.schema_defs[0][1], IntegerType)
 
 
 def test_apply_schema_columns_converts_json_string_to_map():

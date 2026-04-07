@@ -301,7 +301,7 @@ def test_structured_schema_entry_missing_column_or_name_raises(minimal_config):
 
 
 def test_structured_schema_nullable_and_comment_type_validation(minimal_config):
-    """Rejects structured schemas where 'nullable' is non-boolean and/or 'comment' is non-string."""
+    """Rejects structured schemas where 'nullable' is non-boolean and/or 'comment' is neither a string nor a dict."""
     cfg = minimal_config.copy()
     cfg["tables"] = [
         {
@@ -319,6 +319,31 @@ def test_structured_schema_nullable_and_comment_type_validation(minimal_config):
     msg = str(excinfo.value)
     assert "has non-boolean 'nullable'." in msg
     assert "has non-string 'comment'." in msg
+
+
+def test_structured_schema_accepts_dict_comment(minimal_config):
+    """Accepts structured schema comments when provided as dictionaries."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema": [
+                {
+                    "column": "id",
+                    "type": "STRING",
+                    "nullable": True,
+                    "comment": {"description": "primary id"},
+                }
+            ],
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+        }
+    ]
+
+    loader = ConfigLoader(cfg)
+    schema = loader.get_table_schema("browser_cazy_family")
+
+    assert schema is not None
+    assert schema[0]["comment"] == {"description": "primary id"}
 
 
 def test_paths_present_missing_bronze_base_raises(minimal_config):

@@ -375,7 +375,7 @@ def test_structured_schema_nullable_and_comment_type_validation(minimal_config):
 
     msg = str(excinfo.value)
     assert "has non-boolean 'nullable'." in msg
-    assert "has non-string 'comment'." in msg
+    assert "must be a string or dict" in msg
 
 
 def test_structured_schema_accepts_dict_comment(minimal_config):

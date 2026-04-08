@@ -3,9 +3,10 @@ Delta table column comment utilities.
 
 Provides helpers to apply column-level comments to existing Spark/Delta
 tables using a structured list-of-maps schema definition. The module
-uses Spark SQL to update column metadata, safely escapes comment strings,
-skips missing or empty comments gracefully, and returns a structured
-report suitable for logging, auditing, and ingestion metadata.
+supports both plain string comments and JSON-style dict comments,
+safely escapes comment strings, skips missing or empty comments gracefully,
+and returns a structured report suitable for logging, auditing, and
+ingestion metadata.
 """
 
 import logging
@@ -101,9 +102,15 @@ def apply_comments_from_table_schema(
 
     Only schema entries that define both:
       - a column name (`column` or `name`)
-      - a non-empty string `comment`
+      - a non-empty `comment`
 
     will be applied. All other entries are skipped safely.
+
+    Supported comment formats:
+      - Plain string comments
+      - JSON-style dict comments, which are serialized to JSON before being stored
+
+     Unicode characters in comments are preserved.
 
     Args:
         spark: Active SparkSession.
@@ -117,6 +124,17 @@ def apply_comments_from_table_schema(
                   "nullable": false,
                   "comment": "Unique gene identifier"
                 }
+
+            Dict-based comments are also supported, for example:
+                {
+                  "column": "species",
+                  "type": "string",
+                  "comment": {
+                      "description": "Scientific name",
+                      "source": "/api/v1/species"
+                  }
+                }
+
         logger: Optional logger for structured logging.
         require_existing_table: If True, verifies that the table exists
             before attempting to apply comments.

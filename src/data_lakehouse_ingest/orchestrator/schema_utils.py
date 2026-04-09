@@ -1,9 +1,10 @@
 """
 Schema utilities for the Data Lakehouse Ingest framework.
 
-Provides helpers to resolve table schemas, parse SQL-style schema definitions,
-and align DataFrame columns using governed Spark DataTypes, including support
-for DECIMAL(p,s), ARRAY<T>, and MAP<K,V> types.
+Provides helpers to resolve table schemas, parse SQL-style and structured
+schema definitions, preserve structured column metadata (including string
+and JSON-style column comments), and align DataFrame columns using governed
+Spark DataTypes, including support for DECIMAL(p,s), ARRAY<T>, and MAP<K,V> types.
 """
 
 from minio import Minio
@@ -182,7 +183,8 @@ class SchemaSource(Enum):
 
         - Metadata availability:
             Column-level metadata (e.g., comments) may be present when the schema
-            is defined using a structured list-of-maps. Metadata application is
+            is defined using a structured list-of-maps. Comments may be
+            plain strings or structured JSON-style dictionaries. Metadata application is
             driven by the presence of such metadata in the resolved schema, not
             by the schema source enum itself.
 
@@ -252,6 +254,9 @@ def resolve_schema(
            - If `schema` is provided as a **non-empty** list-of-maps, it is parsed
              via `parse_schema_structured()` and returned as normalized
              `(name, DataType)` tuples with `SchemaSource.SCHEMA_STRUCTURED`.
+           - Structured schema entries may include optional metadata such as
+             `nullable` and `comment`. Comment values may be strings or JSON-style
+             dictionaries and are preserved separately in `comment_metadata`.
 
         3) SQL-style schema (`schema_sql`):
            - If `schema` is absent/empty and `schema_sql` is a non-empty string, it is
@@ -281,6 +286,11 @@ def resolve_schema(
         table (dict[str, object]):
             Table definition from the ingestion config. Only schema-related keys are used
             here: `schema`, `schema_sql`, and `linkml_schema`.
+
+            For structured schemas, column definitions may also include metadata such as
+            `nullable` and `comment`. Comment values may be plain strings or structured
+            JSON-style dictionaries and are preserved in `comment_metadata` for downstream
+    Delta column comment application.
         logger (logging.Logger):
             Logger for reporting schema resolution decisions.
         minio_client (Minio | None):

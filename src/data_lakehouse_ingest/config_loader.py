@@ -169,10 +169,16 @@ class ConfigLoader:
         Ensures:
           - Required top-level keys exist (dataset, tables)
           - 'paths' is optional; if present, it must include 'bronze_base'
-          - Each table defines 'name'
-          - Table schema may be provided via 'schema_sql' (string) or
-            'schema' (list of column definitions); if neither is provided,
-            schema inference is allowed
+          - Each table defines a valid non-empty 'name'
+          - Table schema may be provided via:
+              - 'schema_sql' (string), or
+              - 'schema' (list of structured column definitions)
+          - If neither schema form is provided, schema inference is allowed
+          - For structured schema entries:
+              - each entry must be an object/map
+              - 'column' (or 'name') and 'type' are required
+              - 'nullable', if provided, must be boolean
+              - 'comment', if provided, must be either a string or a dict
 
         Raises:
             ValueError: If required keys are missing or invalid.
@@ -273,10 +279,10 @@ class ConfigLoader:
                             f"Table '{table_name}' schema entry for column "
                             f"'{col_name}' has non-boolean 'nullable'."
                         )
-                    if "comment" in coldef and not isinstance(coldef["comment"], str):
+                    if "comment" in coldef and not isinstance(coldef["comment"], (str, dict)):
                         validation_errors.append(
                             f"Table '{table_name}' schema entry for column "
-                            f"'{col_name}' has non-string 'comment'."
+                            f"'{col_name}' has invalid 'comment' (must be a string or dict)."
                         )
 
         # ---- Optional warnings ----

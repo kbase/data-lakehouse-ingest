@@ -234,7 +234,11 @@ class ConfigLoader:
 
             # Validate optional table-level comment (must be str or dict if provided)
             table_comment = t.get("comment")
-            if "comment" in t and table_comment is not None and not isinstance(table_comment, (str, dict)):
+            if (
+                "comment" in t
+                and table_comment is not None
+                and not isinstance(table_comment, (str, dict))
+            ):
                 validation_errors.append(
                     f"Table '{table_name}' has invalid 'comment' (must be a string or dict)."
                 )
@@ -362,7 +366,7 @@ class ConfigLoader:
         if table is None:
             return False
         return bool(table.get("enabled", True))
-    
+
     def get_table_comment(self, table_name: str) -> str | dict[str, Any] | None:
         """
         Retrieve the table-level comment for a given table.

@@ -40,6 +40,11 @@ def table_config():
 # Regular ingestion path
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
     autospec=True,
     return_value=SimpleNamespace(
@@ -75,6 +80,7 @@ def test_process_table_success(
     mock_load_data,
     mock_detect_format,
     mock_resolve_schema,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -118,7 +124,8 @@ def test_process_table_success(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": None,
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": None,
     }
 
     mock_detect_format.assert_called_once_with("s3a://bronze/test_table/", "csv")
@@ -156,6 +163,11 @@ def test_process_table_success(
 # ---------------------------------------------------------------------
 # Delta comment application path (structured schema only)
 # ---------------------------------------------------------------------
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
 @patch(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_comments_from_table_schema",
     autospec=True,
@@ -198,6 +210,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     mock_detect_format,
     mock_resolve_schema,
     mock_apply_comments,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -246,7 +259,8 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": {"applied": 1, "skipped": 0, "missing_in_table": []},
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": {"applied": 1, "skipped": 0, "missing_in_table": []},
     }
 
     mock_apply_comments.assert_called_once()
@@ -299,6 +313,11 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 # Delta comment skip path (non-structured schema)
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_comments_from_table_schema",
     autospec=True,
 )
@@ -339,6 +358,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     mock_detect_format,
     mock_resolve_schema,
     mock_apply_comments,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -381,7 +401,8 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": None,
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": None,
     }
     mock_apply_comments.assert_not_called()
 
@@ -522,6 +543,11 @@ def test_process_table_data_load_failure(
 # logger.context_filter branch
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
     autospec=True,
     return_value=SimpleNamespace(
@@ -557,6 +583,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     mock_load_data,
     mock_detect_format,
     mock_resolve_schema,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -603,7 +630,8 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": None,
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": None,
     }
     mock_logger.context_filter.set_table.assert_called_once_with("test_table")
 
@@ -731,6 +759,11 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
 # DataFrame override bypasses bronze loading
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
     autospec=True,
     return_value=SimpleNamespace(
@@ -764,6 +797,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     mock_write_to_delta,
     mock_apply_schema_columns,
     mock_resolve_schema,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -811,7 +845,8 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": None,
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": None,
     }
 
     mock_resolve_schema.assert_called_once_with(
@@ -995,7 +1030,12 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     assert result.input_source == InputSource.DATAFRAME
     assert result.bronze_path is None
     assert result.format is None
-    assert result.comments_report == {"applied": 1, "skipped": 0, "missing_in_table": []}
+    assert result.table_comment_report["status"] == "skipped"
+    assert result.column_comments_report == {
+        "applied": 1,
+        "skipped": 0,
+        "missing_in_table": [],
+    }
 
     mock_resolve_schema.assert_called_once_with(
         spark=mock_spark,
@@ -1039,6 +1079,11 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
 # Dropped columns reported in result
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+    return_value={"status": "skipped", "reason": "no table comment"},
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
     autospec=True,
     return_value=SimpleNamespace(
@@ -1074,6 +1119,7 @@ def test_process_table_reports_dropped_columns(
     mock_load_data,
     mock_detect_format,
     mock_resolve_schema,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -1116,7 +1162,8 @@ def test_process_table_reports_dropped_columns(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "comments_report": None,
+        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "column_comments_report": None,
     }
 
     mock_resolve_schema.assert_called_once_with(

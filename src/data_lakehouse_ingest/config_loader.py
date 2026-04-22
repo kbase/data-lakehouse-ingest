@@ -2,7 +2,7 @@
 Purpose:
     Provides a configuration loader for the Data Lakehouse Ingest framework.
     Supports reading configuration from:
-      - Local JSON file
+      - Local JSON file (with path traversal protection)
       - Inline JSON string
       - MinIO object storage (s3a://bucket/key)
 

@@ -188,8 +188,7 @@ class ConfigLoader:
               - each entry must be an object/map
               - 'column' (or 'name') and 'type' are required
               - 'nullable', if provided, must be boolean
-              - For structured schema entries:
-                  - 'comment', if provided, must be either a string or a dict
+              - 'comment', if provided, must be either a string or a dict
 
         Raises:
             ValueError: If required keys are missing or invalid.
@@ -240,11 +239,7 @@ class ConfigLoader:
 
             # Validate optional table-level comment (must be str or dict if provided)
             table_comment = t.get("comment")
-            if (
-                "comment" in t
-                and table_comment is not None
-                and not isinstance(table_comment, (str, dict))
-            ):
+            if "comment" in t and not isinstance(table_comment, (str, dict)):
                 validation_errors.append(
                     f"Table '{table_name}' has invalid 'comment' (must be a string or dict)."
                 )

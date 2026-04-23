@@ -38,6 +38,12 @@ class ConfigLoader:
       - Inline JSON strings
       - MinIO object storage (via s3a:// paths)
 
+    Notes:
+        - Local file loading is restricted to a safe configuration directory.
+        - Validation supports both SQL-style and structured schema definitions.
+        - Table-level and column-level comments may be provided as plain strings
+          or JSON-style dictionaries.
+
     Attributes:
         config (dict[str, Any]): The parsed configuration dictionary.
         logger (logging.Logger): The logger instance for structured logging.

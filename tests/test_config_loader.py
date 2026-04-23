@@ -418,6 +418,65 @@ def test_paths_present_missing_bronze_base_raises(minimal_config):
         ConfigLoader(cfg)
 
 
+def test_table_level_comment_accepts_string(minimal_config):
+    """Accepts a plain string table-level comment and returns it via the accessor."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema_sql": "id STRING",
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+            "comment": "CAZy family reference table",
+        }
+    ]
+
+    loader = ConfigLoader(cfg)
+
+    assert loader.get_table_comment("browser_cazy_family") == "CAZy family reference table"
+
+
+def test_table_level_comment_accepts_dict(minimal_config):
+    """Accepts a JSON-style dict table-level comment and returns it unchanged."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema_sql": "id STRING",
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+            "comment": {
+                "description": "CAZy family reference table",
+                "owner": "arkinlab",
+            },
+        }
+    ]
+
+    loader = ConfigLoader(cfg)
+
+    assert loader.get_table_comment("browser_cazy_family") == {
+        "description": "CAZy family reference table",
+        "owner": "arkinlab",
+    }
+
+
+def test_table_level_comment_invalid_type_raises(minimal_config):
+    """Rejects table-level comments that are neither a string nor a dict."""
+    cfg = minimal_config.copy()
+    cfg["tables"] = [
+        {
+            "name": "browser_cazy_family",
+            "schema_sql": "id STRING",
+            "bronze_path": "s3a://bucket/bronze/browser_cazy_family.csv",
+            "comment": 123,
+        }
+    ]
+
+    with pytest.raises(
+        ValueError,
+        match=r"Table 'browser_cazy_family' has invalid 'comment' \(must be a string or dict\)\.",
+    ):
+        ConfigLoader(cfg)
+
+
 # ---------------------------------------------------------------------
 # Accessor tests
 # ---------------------------------------------------------------------
@@ -651,3 +710,14 @@ def test_get_defaults_for_returns_direct_format_defaults(minimal_config):
     loader = ConfigLoader(cfg)
 
     assert loader.get_defaults_for("json") == {"multiline": True}
+
+
+def test_get_table_comment_returns_none_for_missing_table(minimal_config, caplog):
+    """Returns None when requesting a table-level comment for a missing table."""
+    loader = ConfigLoader(minimal_config)
+
+    with caplog.at_level(logging.WARNING):
+        comment = loader.get_table_comment("does_not_exist")
+
+    assert comment is None
+    assert "Requested table 'does_not_exist' not found in configuration." in caplog.text

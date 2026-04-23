@@ -2,13 +2,16 @@
 Purpose:
     Provides a configuration loader for the Data Lakehouse Ingest framework.
     Supports reading configuration from:
-      - Local JSON file
+      - Local JSON file (with path traversal protection)
       - Inline JSON string
       - MinIO object storage (s3a://bucket/key)
 
     Performs validation of minimal required fields, applies defensive checks
     (e.g., path traversal prevention), and exposes convenient accessors for
     tenant, dataset, paths, and per-table definitions.
+
+    Also supports structured metadata such as table-level and column-level comments
+    for enhanced data context and discoverability.
 """
 
 from __future__ import annotations
@@ -34,6 +37,12 @@ class ConfigLoader:
       - Local JSON files (with path traversal protection)
       - Inline JSON strings
       - MinIO object storage (via s3a:// paths)
+
+    Notes:
+        - Local file loading is restricted to a safe configuration directory.
+        - Validation supports both SQL-style and structured schema definitions.
+        - Table-level and column-level comments may be provided as plain strings
+          or JSON-style dictionaries.
 
     Attributes:
         config (dict[str, Any]): The parsed configuration dictionary.
@@ -174,6 +183,7 @@ class ConfigLoader:
               - 'schema_sql' (string), or
               - 'schema' (list of structured column definitions)
           - If neither schema form is provided, schema inference is allowed
+          - Table-level 'comment', if provided, must be either a string or a dict
           - For structured schema entries:
               - each entry must be an object/map
               - 'column' (or 'name') and 'type' are required
@@ -226,6 +236,13 @@ class ConfigLoader:
                 continue
 
             table_name = t["name"]
+
+            # Validate optional table-level comment (must be str or dict if provided)
+            table_comment = t.get("comment")
+            if "comment" in t and not isinstance(table_comment, (str, dict)):
+                validation_errors.append(
+                    f"Table '{table_name}' has invalid 'comment' (must be a string or dict)."
+                )
 
             schema_sql = t.get("schema_sql")
             schema_list = t.get("schema")
@@ -350,6 +367,31 @@ class ConfigLoader:
         if table is None:
             return False
         return bool(table.get("enabled", True))
+
+    def get_table_comment(self, table_name: str) -> str | dict[str, Any] | None:
+        """
+        Retrieve the table-level comment for a given table.
+
+        The comment may be:
+        - a plain string, or
+        - a structured JSON-style dictionary (for richer metadata)
+
+        Args:
+            table_name (str): Name of the table.
+
+        Returns:
+            str | dict[str, Any] | None:
+                The table comment if defined, otherwise None.
+
+        Notes:
+            - If the table is not found, None is returned.
+            - Only string and dict types are considered valid comment formats.
+        """
+        t = self.get_table(table_name)
+        if not t:
+            return None
+        comment = t.get("comment")
+        return comment if isinstance(comment, (str, dict)) or comment is None else None
 
     def get_bronze_path(self, table_name: str) -> str:
         """

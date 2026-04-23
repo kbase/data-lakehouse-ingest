@@ -124,10 +124,11 @@ def test_process_table_success(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": None,
     }
 
+    mock_apply_table_comment.assert_not_called()
     mock_detect_format.assert_called_once_with("s3a://bronze/test_table/", "csv")
     mock_resolve_schema.assert_called_once_with(
         spark=mock_spark,
@@ -259,7 +260,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": {"applied": 1, "skipped": 0, "missing_in_table": []},
     }
 
@@ -401,9 +402,10 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": None,
     }
+
     mock_apply_comments.assert_not_called()
 
     mock_resolve_schema.assert_called_once_with(
@@ -630,9 +632,11 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": None,
     }
+
+    mock_apply_table_comment.assert_not_called()
     mock_logger.context_filter.set_table.assert_called_once_with("test_table")
 
     mock_resolve_schema.assert_called_once_with(
@@ -845,9 +849,11 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": None,
     }
+
+    mock_apply_table_comment.assert_not_called()
 
     mock_resolve_schema.assert_called_once_with(
         spark=mock_spark,
@@ -974,6 +980,10 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
 # DataFrame override applies Delta comments
 # ---------------------------------------------------------------------
 @patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_table_comment",
+    autospec=True,
+)
+@patch(
     "data_lakehouse_ingest.orchestrator.table_processor.apply_comments_from_table_schema",
     autospec=True,
     return_value={"applied": 1, "skipped": 0, "missing_in_table": []},
@@ -1003,6 +1013,7 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     mock_apply_schema_columns,
     mock_resolve_schema,
     mock_apply_comments,
+    mock_apply_table_comment,
     mock_spark,
     mock_logger,
     mock_loader,
@@ -1030,12 +1041,14 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     assert result.input_source == InputSource.DATAFRAME
     assert result.bronze_path is None
     assert result.format is None
-    assert result.table_comment_report["status"] == "skipped"
+    assert result.table_comment_report is None
     assert result.column_comments_report == {
         "applied": 1,
         "skipped": 0,
         "missing_in_table": [],
     }
+
+    mock_apply_table_comment.assert_not_called()
 
     mock_resolve_schema.assert_called_once_with(
         spark=mock_spark,
@@ -1162,7 +1175,7 @@ def test_process_table_reports_dropped_columns(
         "partitions_written": None,
         "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
-        "table_comment_report": {"status": "skipped", "reason": "no table comment"},
+        "table_comment_report": None,
         "column_comments_report": None,
     }
 

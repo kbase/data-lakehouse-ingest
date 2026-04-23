@@ -85,7 +85,9 @@ class TableProcessSuccess:
         quarantine_path: Location where rejected records would be stored.
         elapsed_sec: Processing time in seconds.
         status: Processing status represented by the ProcessStatus enum.
-        comments_report: Result of applying Delta column comments when structured
+        table_comment_report: Result of applying Delta table-level comments when
+            a table-level `comment` is provided in the config.
+        column_comments_report: Result of applying Delta column comments when structured
             schema metadata includes column comments.
     """
 
@@ -106,7 +108,8 @@ class TableProcessSuccess:
     quarantine_path: str | None
     elapsed_sec: float | None
     status: ProcessStatus
-    comments_report: dict[str, Any] | None
+    table_comment_report: dict[str, Any] | None
+    column_comments_report: dict[str, Any] | None
 
 
 @dataclass

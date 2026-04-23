@@ -62,11 +62,11 @@ def process_table(
     - Loads data either from the Bronze path via Spark or from a provided DataFrame override
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
-    - Applies Delta table comments when table-level comment metadata is provided
+    - Applies Delta table comments when the table config includes a non-null `comment` value
     - Applies Delta column comments when a structured (list-of-maps) schema is used
     - Returns a structured result object summarizing ingestion results
 
-    Table comments are applied when the table config includes a `comment` value.
+    Table comments are applied only when the table config includes a non-null `comment` value.
     Column comments are applied when a structured schema with comments metadata is available.
 
     Args:
@@ -249,14 +249,15 @@ def process_table(
 
     full_table_name = f"{namespace}.{name}"
 
-    table_comment_report = apply_table_comment(
-        spark=spark,
-        full_table_name=full_table_name,
-        table_comment=table.get("comment"),
-        logger=logger,
-        require_existing_table=True,
-    )
-    logger.info(f"Table comment apply report: {table_comment_report}")
+    if "comment" in table and table.get("comment") is not None:
+        table_comment_report = apply_table_comment(
+            spark=spark,
+            full_table_name=full_table_name,
+            table_comment=table.get("comment"),
+            logger=logger,
+            require_existing_table=True,
+        )
+        logger.info(f"Table comment apply report: {table_comment_report}")
 
     # Applies Delta column comments when comment metadata is available (from structured schema)
     column_comments_report = None

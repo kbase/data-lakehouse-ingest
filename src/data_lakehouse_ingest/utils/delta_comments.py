@@ -109,14 +109,12 @@ def _try_set_table_comment(
         False otherwise.
     """
     c_sql = _escape_sql_string(comment)
-
     try:
         spark.sql(f'COMMENT ON TABLE {full_table_name} IS "{c_sql}"')
         return True
     except Exception:
         logger.warning(
             f"COMMENT ON TABLE failed for {full_table_name}; trying TBLPROPERTIES fallback",
-            exc_info=True,
         )
 
     try:

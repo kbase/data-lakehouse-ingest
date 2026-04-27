@@ -1,12 +1,11 @@
 """
-Delta table column comment utilities.
+Delta table and column comment utilities.
 
-Provides helpers to apply column-level comments to existing Spark/Delta
-tables using a structured list-of-maps schema definition. The module
-supports both plain string comments and JSON-style dict comments,
-safely escapes comment strings, skips missing or empty comments gracefully,
-and returns a structured report suitable for logging, auditing, and
-ingestion metadata.
+Provides helpers to apply table-level and column-level comments to existing
+Spark/Delta tables using structured metadata. The module supports both plain
+string comments and JSON-style dict comments, safely escapes comment strings,
+skips missing or empty comments gracefully, and returns structured reports
+suitable for logging, auditing, and ingestion metadata.
 """
 
 import logging
@@ -82,6 +81,47 @@ def _try_alter_column_comment(
         return True
     except Exception:
         logger.exception(f"Failed to set comment for {full_table_name}.{col}")
+        return False
+
+
+def _try_set_table_comment(
+    spark: SparkSession,
+    full_table_name: str,
+    comment: str,
+    logger: logging.Logger,
+) -> bool:
+    """
+    Attempt to set a table-level comment using Spark SQL.
+
+    This function first tries `COMMENT ON TABLE ... IS ...`. If that fails,
+    it falls back to `ALTER TABLE ... SET TBLPROPERTIES ("comment" = ...)`
+    for compatibility with environments where direct table comment syntax
+    is unsupported.
+
+    Args:
+        spark: Active SparkSession.
+        full_table_name: Fully qualified table name.
+        comment: Comment text to apply.
+        logger: Logger used for warning and error messages.
+
+    Returns:
+        True if the table comment was successfully applied,
+        False otherwise.
+    """
+    c_sql = _escape_sql_string(comment)
+    try:
+        spark.sql(f'COMMENT ON TABLE {full_table_name} IS "{c_sql}"')
+        return True
+    except Exception:
+        logger.warning(
+            f"COMMENT ON TABLE failed for {full_table_name}; trying TBLPROPERTIES fallback",
+        )
+
+    try:
+        spark.sql(f'ALTER TABLE {full_table_name} SET TBLPROPERTIES ("comment" = "{c_sql}")')
+        return True
+    except Exception:
+        logger.exception(f"Failed to set table comment for {full_table_name}")
         return False
 
 
@@ -197,4 +237,38 @@ def apply_comments_from_table_schema(
         "skipped": skipped,
         "failed": failed,
         "details": details,
+    }
+
+
+def apply_table_comment(
+    spark: SparkSession,
+    full_table_name: str,
+    table_comment: str | dict[str, Any] | None,
+    logger: logging.Logger | None = None,
+    *,
+    require_existing_table: bool = True,
+) -> dict[str, Any]:
+    logger = logger or logging.getLogger(__name__)
+
+    if require_existing_table and not spark.catalog.tableExists(full_table_name):
+        msg = f"Table does not exist: {full_table_name}"
+        logger.error(msg)
+        return {"table": full_table_name, "status": "failed", "error": msg}
+
+    if isinstance(table_comment, dict):
+        table_comment = json.dumps(table_comment, ensure_ascii=False)
+
+    if not isinstance(table_comment, str) or not table_comment.strip():
+        return {
+            "table": full_table_name,
+            "status": "skipped",
+            "reason": "no table comment",
+        }
+
+    ok = _try_set_table_comment(spark, full_table_name, table_comment, logger)
+
+    return {
+        "table": full_table_name,
+        "status": "success" if ok else "failed",
+        "applied": bool(ok),
     }

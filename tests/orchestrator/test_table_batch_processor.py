@@ -35,7 +35,8 @@ def make_success(name: str = "table") -> TableProcessSuccess:
         quarantine_path=None,
         elapsed_sec=0.1,
         status=ProcessStatus.SUCCESS,
-        comments_report=None,
+        table_comment_report=None,
+        column_comments_report=None,
     )
 
 
@@ -91,7 +92,8 @@ def test_process_tables_success():
         quarantine_path=None,
         elapsed_sec=1.0,
         status=ProcessStatus.SUCCESS,
-        comments_report=None,
+        table_comment_report=None,
+        column_comments_report=None,
     )
 
     mock_report_2 = TableProcessSuccess(
@@ -112,7 +114,8 @@ def test_process_tables_success():
         quarantine_path=None,
         elapsed_sec=1.2,
         status=ProcessStatus.SUCCESS,
-        comments_report=None,
+        table_comment_report=None,
+        column_comments_report=None,
     )
 
     with patch(

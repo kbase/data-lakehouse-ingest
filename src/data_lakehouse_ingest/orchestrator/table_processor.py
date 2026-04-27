@@ -7,7 +7,7 @@ Purpose:
       - Schema resolution (using SQL schema strings, structured column definitions, or DataFrame schemas)
       - Data loading either from the Bronze layer (via Spark) or from a provided DataFrame
       - Schema application and column alignment
-      - Writing curated data to the Silver layer in Delta format
+      - Writing curated data to the Silver layer via Iceberg catalogs
       - Applying table-level and column-level Delta comments when configured
 """
 
@@ -26,7 +26,7 @@ from data_lakehouse_ingest.orchestrator.schema_utils import (
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
-    write_to_delta,
+    write_table,
 )
 from data_lakehouse_ingest.utils.delta_comments import (
     apply_comments_from_table_schema,
@@ -54,16 +54,16 @@ def process_table(
     df_override: DataFrame | None = None,
 ) -> TableProcessResult:
     """
-    Ingest a single table from the Bronze layer into the Silver Delta layer.
+    Ingest a single table from the Bronze layer into the Silver layer.
 
     This function handles both standard and specialized ingestion workflows:
     - Determines file format (CSV, TSV, JSON, XML, Parquet, etc.) when reading from Bronze storage
     - Resolves the applicable schema using SQL schema strings, structured column definitions, or DataFrame schemas
     - Loads data either from the Bronze path via Spark or from a provided DataFrame override
     - Applies schema alignment and column cleanup
-    - Writes the processed DataFrame to the Silver Delta location
-    - Applies Delta table comments when the table config includes a non-null `comment` value
-    - Applies Delta column comments when a structured (list-of-maps) schema is used
+    - Writes the processed DataFrame via catalog-driven APIs (Iceberg)
+    - Applies table comment when the table config includes a non-null `comment` value
+    - Applies column comments when a structured (list-of-maps) schema is used
     - Returns a structured result object summarizing ingestion results
 
     Table comments are applied only when the table config includes a non-null `comment` value.
@@ -77,13 +77,12 @@ def process_table(
             Structured logger instance with contextual metadata (pipeline, schema, table).
 
         loader (Any):
-            Loader object that provides methods like `get_bronze_path()` and `get_silver_path()`.
+            Loader object that provides methods like `get_bronze_path()`.
 
         ctx (dict[str, Any]):
             Execution context containing keys such as:
                 - "tenant": Tenant identifier
-                - "namespace": Fully qualified namespace for the Delta tables
-                - "namespace_base_path": Base path under which Silver tables will be written
+                - "namespace": Fully qualified namespace (e.g., ``kbase.ke_pangenome``)
 
         table (dict):
             Table configuration dictionary containing keys such as:
@@ -112,7 +111,7 @@ def process_table(
                 - exceptions may still propagate for invalid configuration or downstream processing errors
             The success result includes fields such as:
                 - name, tenant, target_table
-                - bronze_path, silver_path
+                - bronze_path
                 - rows_in, rows_written, elapsed_sec
                 - table_comment_report
                 - column_comments_report
@@ -134,11 +133,7 @@ def process_table(
         ...     spark=spark,
         ...     logger=logger,
         ...     loader=loader,
-        ...     ctx={
-        ...         "tenant": "tenant_alpha",
-        ...         "namespace": "tenant_alpha__dataset",
-        ...         "namespace_base_path": "s3a://silver/"
-        ...     },
+        ...     ctx={"tenant": "kbase", "namespace": "kbase.ke_pangenome"},
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
@@ -155,10 +150,8 @@ def process_table(
 
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
-    namespace_base_path = ctx["namespace_base_path"]
 
     name = table["name"]
-    silver_path = namespace_base_path
 
     start_table_time = datetime.now(timezone.utc)
 
@@ -170,7 +163,7 @@ def process_table(
     fmt: str | None = None
     input_source = InputSource.DATAFRAME if df_override is not None else InputSource.BRONZE
 
-    logger.info(f"   Silver: {silver_path}")
+    logger.info(f"   Target: {namespace}.{name}")
 
     # --- Load data (either DF override OR Bronze path) ---
     try:
@@ -221,7 +214,7 @@ def process_table(
 
     dropped_cols = schema_meta.get("dropped_columns", [])
 
-    # --- Write to Delta ---
+    # --- Write table via catalog ---
     partition_by = table.get("partition_by")
     raw_mode = table.get("mode", "overwrite")
 
@@ -233,13 +226,11 @@ def process_table(
             f"Supported modes are: {[m.value for m in WriteMode]}"
         ) from e
 
-    rows_written = write_to_delta(
+    rows_written = write_table(
         df=df,
         spark=spark,
         namespace=namespace,
-        namespace_base_path=namespace_base_path,
         name=name,
-        silver_path=silver_path,
         partition_by=partition_by,
         mode=mode.value,
         logger=logger,
@@ -259,7 +250,7 @@ def process_table(
         )
         logger.info(f"Table comment apply report: {table_comment_report}")
 
-    # Applies Delta column comments when comment metadata is available (from structured schema)
+    # Applies column comments when comment metadata is available (from structured schema)
     column_comments_report = None
 
     if resolved.comment_metadata:
@@ -272,9 +263,6 @@ def process_table(
         )
         logger.info(f"Column comment apply report: {column_comments_report}")
 
-    rows_rejected = 0
-    partitions_written = None
-    quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
     logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")
@@ -288,13 +276,9 @@ def process_table(
         schema_source=resolved.schema_source,
         input_source=input_source,
         bronze_path=bronze_path,
-        silver_path=silver_path,
         rows_in=rows_in,
         rows_written=rows_written,
-        rows_rejected=rows_rejected,
         extra_columns_dropped=dropped_cols,
-        partitions_written=partitions_written,
-        quarantine_path=quarantine_path,
         elapsed_sec=elapsed_sec,
         status=ProcessStatus.SUCCESS,
         table_comment_report=table_comment_report,

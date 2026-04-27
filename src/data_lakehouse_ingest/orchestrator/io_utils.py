@@ -1,10 +1,10 @@
 """
 Input/output utilities for the Data Lakehouse Ingest framework.
 Handles file format detection, data loading from Bronze sources,
-and writing curated data to Silver Delta tables.
+and writing curated data to Silver tables via Iceberg catalogs.
 
 Provides a unified interface for reading CSV, TSV, JSON, and XML formats,
-and ensures consistent creation and registration of Delta tables in Spark.
+and writes tables using catalog-driven APIs (no explicit path management).
 """
 
 import logging
@@ -23,19 +23,18 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     Determines the file format based on either an explicit configuration
     value (`explicit_fmt`) or by inspecting the file extension.
 
-    Supported extensions: `.csv`, `.tsv`, `.json`, `.xml`.
+     Supported extensions: `.csv`, `.tsv`, `.json`, `.xml`, `.parquet`.
 
     Args:
         bronze_path (str): Full S3/local path to the input data file.
-        explicit_fmt (str | None): Optional explicit format (csv, tsv, json, xml).
+        explicit_fmt (str | None): Optional explicit format (csv, tsv, json, xml, parquet).
 
     Returns:
-        str: The detected format name ("csv", "tsv", "json", or "xml").
+         str: The detected format name.
 
     Notes:
         - Explicit format overrides file extension detection.
         - Defaults to "csv" when no recognizable extension is found.
-        - Ensures consistent downstream loader selection in ingestion pipelines.
     """
 
     # TODO: Explore using python-magic or content-based format detection.
@@ -51,7 +50,6 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     if explicit_fmt:
         return explicit_fmt.lower()
 
-    # Map file extensions to formats
     extension_map = {
         "csv": "csv",
         "tsv": "tsv",
@@ -61,7 +59,7 @@ def detect_format(bronze_path: str, explicit_fmt: str | None) -> str:
     }
 
     ext = bronze_path.split(".")[-1].lower()
-    return extension_map.get(ext, "csv")  # default fallback
+    return extension_map.get(ext, "csv")
 
 
 def load_table_data(
@@ -91,49 +89,51 @@ def load_table_data(
     return df, rows_in
 
 
-def write_to_delta(
+def write_table(
     df: DataFrame,
     spark: SparkSession,
     namespace: str,
-    namespace_base_path: str,
     name: str,
-    silver_path: str,
     partition_by: str | list[str] | None,
     mode: str,
     logger: logging.Logger,
 ) -> int:
-    # TODO: Explore replacing explicit `table_path` writes with a catalog-driven approach.
-    #
-    # Goal:
-    #   Eliminate the need to manually construct and manage table paths (namespace_base_path/name)
-    #   by allowing Spark to handle initial table creation and location assignment.
+    """
+    Write a DataFrame to a table using catalog-driven APIs.
 
-    # Construct deterministic table path inside namespace storage location
-    table_path = f"{namespace_base_path}/{name}"
+    The Iceberg catalog manages storage locations — no explicit path
+    construction or LOCATION clause is needed.
 
-    logger.info(f"Resolved Delta target path: {table_path}")
+    Args:
+        df: DataFrame to write.
+        spark: Active SparkSession.
+        namespace: Fully qualified namespace (e.g., ``my.dataset`` or ``kbase.dataset``).
+        name: Table name.
+        partition_by: Optional partition column(s).
+        mode: Write mode — ``"overwrite"`` or ``"append"``.
+        logger: Logger for structured output.
 
-    rows_written = df.count()
+    Returns:
+        Number of rows written.
+    """
 
-    # Write (with overwriteSchema only for overwrite mode)
-    writer = df.write.format("delta").mode(mode)
+    #rows_written = df.count()
 
-    if mode == "overwrite":
-        writer = writer.option("overwriteSchema", "true")
+    full_table = f"{namespace}.{name}"
+    logger.info(f"Writing table: {full_table} (mode={mode})")
+
+    writer = df.writeTo(full_table)
 
     if partition_by:
-        writer = writer.partitionBy(partition_by)
+        cols = [partition_by] if isinstance(partition_by, str) else list(partition_by)
+        writer = writer.partitionedBy(*cols)
 
-    writer.save(table_path)
+    if mode == "append":
+        writer.append()
+    else:
+        writer.createOrReplace()
 
-    # Register table if missing (no schema overwrite here!)
-    spark.sql(f"""
-        CREATE TABLE IF NOT EXISTS `{namespace}`.`{name}`
-        USING DELTA
-        LOCATION '{table_path}'
-    """)
-
-    # log rows
-    logger.info(f"Wrote {rows_written} rows → {namespace}.{name} @ {table_path}")
+    rows_written = spark.table(full_table).count()
+    logger.info(f"Wrote {rows_written} rows → {full_table}")
 
     return rows_written

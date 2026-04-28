@@ -8,6 +8,7 @@ Purpose:
       - Data loading either from the Bronze layer (via Spark) or from a provided DataFrame
       - Schema application and column alignment
       - Writing curated data to the Silver layer in Delta format
+      - Applying table-level and column-level Delta comments when configured
 """
 
 from __future__ import annotations
@@ -27,7 +28,10 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
     load_table_data,
     write_to_delta,
 )
-from data_lakehouse_ingest.utils.delta_comments import apply_comments_from_table_schema
+from data_lakehouse_ingest.utils.delta_comments import (
+    apply_comments_from_table_schema,
+    apply_table_comment,
+)
 
 from .models import (
     TableProcessSuccess,
@@ -58,9 +62,11 @@ def process_table(
     - Loads data either from the Bronze path via Spark or from a provided DataFrame override
     - Applies schema alignment and column cleanup
     - Writes the processed DataFrame to the Silver Delta location
+    - Applies Delta table comments when the table config includes a non-null `comment` value
     - Applies Delta column comments when a structured (list-of-maps) schema is used
     - Returns a structured result object summarizing ingestion results
 
+    Table comments are applied only when the table config includes a non-null `comment` value.
     Column comments are applied when a structured schema with comments metadata is available.
 
     Args:
@@ -85,6 +91,7 @@ def process_table(
                 - "format": Input format override (optional)
                 - "mode": Write mode (e.g., "overwrite", "append")
                 - "partition_by": Optional partition columns
+                - "comment": Optional table-level comment as a string or dict
 
         run_started_at_iso (str):
             ISO-8601 timestamp representing when the pipeline run began.
@@ -107,7 +114,8 @@ def process_table(
                 - name, tenant, target_table
                 - bronze_path, silver_path
                 - rows_in, rows_written, elapsed_sec
-                - comments_report
+                - table_comment_report
+                - column_comments_report
                 - status (represented by ProcessStatus)
 
             The failure result includes fields such as:
@@ -237,19 +245,32 @@ def process_table(
         logger=logger,
     )
 
+    table_comment_report = None
+
+    full_table_name = f"{namespace}.{name}"
+
+    if "comment" in table and table.get("comment") is not None:
+        table_comment_report = apply_table_comment(
+            spark=spark,
+            full_table_name=full_table_name,
+            table_comment=table.get("comment"),
+            logger=logger,
+            require_existing_table=True,
+        )
+        logger.info(f"Table comment apply report: {table_comment_report}")
+
     # Applies Delta column comments when comment metadata is available (from structured schema)
-    comments_report = None
+    column_comments_report = None
 
     if resolved.comment_metadata:
-        full_table_name = f"{namespace}.{name}"
-        comments_report = apply_comments_from_table_schema(
+        column_comments_report = apply_comments_from_table_schema(
             spark=spark,
             full_table_name=full_table_name,
             table_schema=resolved.comment_metadata,
             logger=logger,
             require_existing_table=True,
         )
-        logger.info(f"Column comment apply report: {comments_report}")
+        logger.info(f"Column comment apply report: {column_comments_report}")
 
     rows_rejected = 0
     partitions_written = None
@@ -276,5 +297,6 @@ def process_table(
         quarantine_path=quarantine_path,
         elapsed_sec=elapsed_sec,
         status=ProcessStatus.SUCCESS,
-        comments_report=comments_report,
+        table_comment_report=table_comment_report,
+        column_comments_report=column_comments_report,
     )

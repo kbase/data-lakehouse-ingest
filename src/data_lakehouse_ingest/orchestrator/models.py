@@ -62,7 +62,7 @@ class WriteMode(Enum):
 class TableProcessSuccess:
     """
     Represents a successful table ingestion result.
- 
+
     This object captures metadata and metrics produced when a table is
     successfully processed and written to the target Silver table.
 

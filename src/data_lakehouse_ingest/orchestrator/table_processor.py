@@ -233,6 +233,7 @@ def process_table(
         name=name,
         partition_by=partition_by,
         mode=mode.value,
+        rows_in=rows_in,
         logger=logger,
     )
 

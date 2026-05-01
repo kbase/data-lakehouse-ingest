@@ -69,13 +69,13 @@ def table_config():
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies the standard bronze→silver happy path produces a success report and calls the expected helpers.
 def test_process_table_success(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -89,7 +89,6 @@ def test_process_table_success(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
     result = process_table(
         spark=mock_spark,
@@ -116,13 +115,9 @@ def test_process_table_success(
         "schema_source": SchemaSource.SCHEMA_SQL,
         "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
-        "silver_path": "s3a://silver/",
         "rows_in": 100,
         "rows_written": 95,
-        "rows_rejected": 0,
         "extra_columns_dropped": [],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": None,
@@ -138,7 +133,7 @@ def test_process_table_success(
     )
     mock_load_data.assert_called_once()
     mock_apply_schema.assert_called_once()
-    mock_write_to_delta.assert_called_once()
+    mock_write_table.assert_called_once()
     mock_logger.info.assert_any_call("Processing table: test_table")
 
     mock_loader.get_bronze_path.assert_called_once_with("test_table")
@@ -199,13 +194,13 @@ def test_process_table_success(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies structured schemas trigger Delta column comment application and the correct args are passed through.
 def test_process_table_applies_delta_comments_for_structured_schema(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -220,7 +215,6 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     table_with_schema = {
@@ -252,13 +246,9 @@ def test_process_table_applies_delta_comments_for_structured_schema(
         "schema_source": SchemaSource.SCHEMA_STRUCTURED,
         "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
-        "silver_path": "s3a://silver/",
         "rows_in": 100,
         "rows_written": 95,
-        "rows_rejected": 0,
         "extra_columns_dropped": [],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": {"applied": 1, "skipped": 0, "missing_in_table": []},
@@ -299,12 +289,10 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     assert kwargs["schema_defs"] == [{"column": "gene_id", "type": "string"}]
     assert kwargs["logger"] == mock_logger
 
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
     assert kwargs["logger"] == mock_logger
@@ -347,13 +335,13 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies non-structured schemas skip Delta comment application entirely.
 def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -368,7 +356,6 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
     result = process_table(
         spark=mock_spark,
@@ -394,13 +381,9 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
         "schema_source": SchemaSource.SCHEMA_SQL,
         "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
-        "silver_path": "s3a://silver/",
         "rows_in": 100,
         "rows_written": 95,
-        "rows_rejected": 0,
         "extra_columns_dropped": [],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": None,
@@ -435,12 +418,10 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     assert kwargs["schema_defs"] == "CREATE TABLE ..."
     assert kwargs["logger"] == mock_logger
 
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
     assert kwargs["logger"] == mock_logger
@@ -473,12 +454,12 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     autospec=True,
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
 )
 # Verifies data loading exceptions are caught and returned as a failed report with phase="data_loading".
 def test_process_table_data_load_failure(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load,
     mock_detect_format,
@@ -491,7 +472,6 @@ def test_process_table_data_load_failure(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(
@@ -537,7 +517,7 @@ def test_process_table_data_load_failure(
     assert args[4] == mock_logger
 
     mock_apply_schema.assert_not_called()
-    mock_write_to_delta.assert_not_called()
+    mock_write_table.assert_not_called()
     mock_logger.error.assert_called_once()
 
 
@@ -574,13 +554,13 @@ def test_process_table_data_load_failure(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies the logger context filter (if present) is updated with the table name.
 def test_process_table_sets_logger_table_context_when_context_filter_present(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -597,7 +577,6 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(
@@ -624,13 +603,9 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
         "schema_source": SchemaSource.SCHEMA_SQL,
         "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
-        "silver_path": "s3a://silver/",
         "rows_in": 100,
         "rows_written": 95,
-        "rows_rejected": 0,
         "extra_columns_dropped": [],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": None,
@@ -666,12 +641,10 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     assert kwargs["schema_defs"] == "CREATE TABLE ..."
     assert kwargs["logger"] == mock_logger
 
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
     assert kwargs["logger"] == mock_logger
@@ -706,13 +679,13 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies fallback reader options are used when loader lacks get_defaults_for(), including TSV delimiter and recursive lookup.
 def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defaults_for(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -734,7 +707,6 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(
@@ -782,7 +754,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=10,
 )
@@ -798,7 +770,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
 def test_process_table_dataframe_override_skips_bronze_loading(
     mock_detect_format,
     mock_load_table_data,
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema_columns,
     mock_resolve_schema,
     mock_apply_table_comment,
@@ -810,7 +782,6 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     df_override = MagicMock()
@@ -841,13 +812,9 @@ def test_process_table_dataframe_override_skips_bronze_loading(
         "schema_source": SchemaSource.SCHEMA_SQL,
         "input_source": InputSource.DATAFRAME,
         "bronze_path": None,
-        "silver_path": "s3a://silver/",
         "rows_in": 123,
         "rows_written": 10,
-        "rows_rejected": 0,
         "extra_columns_dropped": [],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": None,
@@ -868,15 +835,14 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     assert kwargs["df"] == df_override
     assert kwargs["schema_defs"] == "CREATE TABLE ..."
     assert kwargs["logger"] == mock_logger
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["df"] == df_override
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
+    assert kwargs["rows_in"] == 123
     assert kwargs["logger"] == mock_logger
 
     # No bronze-path loading should happen
@@ -886,7 +852,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
 
     # still should apply schema + write
     mock_apply_schema_columns.assert_called_once()
-    mock_write_to_delta.assert_called_once()
+    mock_write_table.assert_called_once()
 
 
 # ---------------------------------------------------------------------
@@ -907,13 +873,13 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=1,
 )
 # Verifies df_override reports format=None because Bronze file format is not applicable for DataFrame-based ingestion.
 def test_process_table_dataframe_override_sets_format_from_table_or_default(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema_columns,
     mock_resolve_schema,
     mock_spark,
@@ -923,7 +889,6 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     df_override = MagicMock()
@@ -957,7 +922,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
     assert df_override.count.call_count == 2
     mock_loader.get_bronze_path.assert_not_called()
     assert mock_apply_schema_columns.call_count == 2
-    assert mock_write_to_delta.call_count == 2
+    assert mock_write_table.call_count == 2
 
     first_call = mock_resolve_schema.call_args_list[0]
     second_call = mock_resolve_schema.call_args_list[1]
@@ -969,7 +934,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
     }
     assert second_call.kwargs["table"] == {"name": "test_table", "mode": "overwrite"}
 
-    for call in mock_write_to_delta.call_args_list:
+    for call in mock_write_table.call_args_list:
         kwargs = call.kwargs
         assert kwargs["name"] == "test_table"
         assert kwargs["mode"] == "overwrite"
@@ -1003,13 +968,13 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=10,
 )
 # Verifies df_override still applies Delta comments when structured comment metadata is present.
 def test_process_table_dataframe_override_applies_delta_comments_when_available(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema_columns,
     mock_resolve_schema,
     mock_apply_comments,
@@ -1021,7 +986,6 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     df_override = MagicMock()
@@ -1066,15 +1030,14 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     assert kwargs["schema_defs"] == [{"column": "gene_id", "type": "string"}]
     assert kwargs["logger"] == mock_logger
 
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["df"] == df_override
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
+    assert kwargs["rows_in"] == 10
     assert kwargs["logger"] == mock_logger
 
     mock_apply_comments.assert_called_once()
@@ -1121,13 +1084,13 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     return_value=(MagicMock(), {"dropped_columns": ["colA", "colB"]}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 # Verifies dropped columns returned by apply_schema_columns are surfaced in extra_columns_dropped in the report.
 def test_process_table_reports_dropped_columns(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -1140,7 +1103,6 @@ def test_process_table_reports_dropped_columns(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     result = process_table(
@@ -1167,13 +1129,9 @@ def test_process_table_reports_dropped_columns(
         "schema_source": SchemaSource.SCHEMA_SQL,
         "input_source": InputSource.BRONZE,
         "bronze_path": "s3a://bronze/test_table/",
-        "silver_path": "s3a://silver/",
         "rows_in": 100,
         "rows_written": 95,
-        "rows_rejected": 0,
         "extra_columns_dropped": ["colA", "colB"],
-        "partitions_written": None,
-        "quarantine_path": "s3a://silver//quarantine/2025-10-31T12-00-00Z/",
         "status": ProcessStatus.SUCCESS,
         "table_comment_report": None,
         "column_comments_report": None,
@@ -1206,14 +1164,13 @@ def test_process_table_reports_dropped_columns(
     assert kwargs["schema_defs"] == "CREATE TABLE ..."
     assert kwargs["logger"] == mock_logger
 
-    _, kwargs = mock_write_to_delta.call_args
+    _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
     assert kwargs["namespace"] == "tenant_alpha__dataset"
-    assert kwargs["namespace_base_path"] == "s3a://silver/"
     assert kwargs["name"] == "test_table"
-    assert kwargs["silver_path"] == "s3a://silver/"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
+    assert kwargs["rows_in"] == 100
     assert kwargs["logger"] == mock_logger
 
 
@@ -1252,12 +1209,12 @@ def test_process_table_reports_dropped_columns(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 def test_process_table_applies_table_level_string_comment(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -1270,7 +1227,6 @@ def test_process_table_applies_table_level_string_comment(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     table = {
@@ -1332,12 +1288,12 @@ def test_process_table_applies_table_level_string_comment(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 def test_process_table_applies_table_level_dict_comment(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -1350,7 +1306,6 @@ def test_process_table_applies_table_level_dict_comment(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     table_comment = {
@@ -1422,12 +1377,12 @@ def test_process_table_applies_table_level_dict_comment(
     side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
 )
 @patch(
-    "data_lakehouse_ingest.orchestrator.table_processor.write_to_delta",
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
     autospec=True,
     return_value=95,
 )
 def test_process_table_applies_table_and_column_comments(
-    mock_write_to_delta,
+    mock_write_table,
     mock_apply_schema,
     mock_load_data,
     mock_detect_format,
@@ -1441,7 +1396,6 @@ def test_process_table_applies_table_and_column_comments(
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha__dataset",
-        "namespace_base_path": "s3a://silver/",
     }
 
     table = {

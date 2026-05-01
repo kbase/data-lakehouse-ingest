@@ -9,7 +9,7 @@ between orchestration components explicit.
 Two result types are defined:
 
 - TableProcessSuccess: Returned when a table is successfully processed and
-  written to the Silver Delta layer. Includes metrics such as rows read,
+  written to the target Silver table. Includes metrics such as rows read,
   rows written, elapsed time, and optional comment application results.
 
 - TableProcessFailure: Returned when a table fails during processing. Contains
@@ -51,7 +51,7 @@ class InputSource(Enum):
 
 class WriteMode(Enum):
     """
-    Supported write modes when writing Delta tables.
+    Supported write modes when writing target tables.
     """
 
     OVERWRITE = "overwrite"
@@ -62,32 +62,28 @@ class WriteMode(Enum):
 class TableProcessSuccess:
     """
     Represents a successful table ingestion result.
-
+ 
     This object captures metadata and metrics produced when a table is
-    successfully processed and written to the Silver Delta layer.
+    successfully processed and written to the target Silver table.
 
     Attributes:
         name: Table name.
         tenant: Tenant identifier associated with the ingestion run.
         target_table: Fully qualified target table name in the Silver layer.
-        mode: Write mode used when writing to Delta. Represented by the WriteMode enum.
+        mode: Write mode used when writing the target table. Represented by the WriteMode enum.
         format: Detected input file format when reading from Bronze storage.
         schema_source: Origin of the resolved schema. Represented by the SchemaSource enum.
         input_source: Indicates whether input was read from Bronze storage or provided
             as a Spark DataFrame override. Represented by the InputSource enum.
         bronze_path: Source path in Bronze storage if applicable.
-        silver_path: Target storage path where the Delta table is written.
         rows_in: Number of input rows read.
-        rows_written: Number of rows written to the Silver Delta table.
-        rows_rejected: Number of rows rejected during processing.
+        rows_written: Number of rows written to the target table.
         extra_columns_dropped: Columns dropped because they were not present in the schema.
-        partitions_written: List of partitions written (if partitioning is used).
-        quarantine_path: Location where rejected records would be stored.
         elapsed_sec: Processing time in seconds.
         status: Processing status represented by the ProcessStatus enum.
-        table_comment_report: Result of applying Delta table-level comments when
+        table_comment_report: Result of applying table-level comments when
             a table-level `comment` is provided in the config.
-        column_comments_report: Result of applying Delta column comments when structured
+        column_comments_report: Result of applying column comments when structured
             schema metadata includes column comments.
     """
 
@@ -99,13 +95,9 @@ class TableProcessSuccess:
     schema_source: SchemaSource
     input_source: InputSource
     bronze_path: str | None
-    silver_path: str | None
     rows_in: int | None
     rows_written: int | None
-    rows_rejected: int | None
     extra_columns_dropped: list[str]
-    partitions_written: list[str] | None
-    quarantine_path: str | None
     elapsed_sec: float | None
     status: ProcessStatus
     table_comment_report: dict[str, Any] | None

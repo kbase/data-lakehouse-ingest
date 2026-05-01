@@ -68,9 +68,12 @@ def load_table_data(
     fmt: str,
     opts: dict,
     logger: logging.Logger,
-) -> tuple[object, int]:
+) -> tuple[DataFrame, int]:
     """
-    Loads a DataFrame and returns (df, rows_in).
+    Load source data into a DataFrame and return the DataFrame with its input row count.
+
+    Returns:
+        tuple[DataFrame, int]: The loaded DataFrame and number of rows read from the source.
     """
     fmt_to_loader = {
         "json": load_json_data,
@@ -89,6 +92,20 @@ def load_table_data(
     return df, rows_in
 
 
+def table_exists(spark: SparkSession, full_table: str) -> bool:
+    """
+    Check whether a catalog table exists.
+
+    Uses Spark table access so it works with fully qualified catalog table names,
+    including Iceberg tables.
+    """
+    try:
+        spark.table(full_table).limit(1).count()
+        return True
+    except Exception:
+        return False
+
+
 def write_table(
     df: DataFrame,
     spark: SparkSession,
@@ -96,13 +113,16 @@ def write_table(
     name: str,
     partition_by: str | list[str] | None,
     mode: str,
+    rows_in: int,
     logger: logging.Logger,
 ) -> int:
     """
-    Write a DataFrame to a table using catalog-driven APIs.
+    Write a DataFrame to a table using catalog-driven Iceberg APIs.
 
-    The Iceberg catalog manages storage locations — no explicit path
-    construction or LOCATION clause is needed.
+    The Iceberg catalog manages table storage locations, so this function does
+    not construct explicit paths or use LOCATION clauses. For overwrite mode,
+    the table is created or replaced. For append mode, the table must already
+    exist.
 
     Args:
         df: DataFrame to write.
@@ -110,17 +130,38 @@ def write_table(
         namespace: Fully qualified namespace (e.g., ``my.dataset`` or ``kbase.dataset``).
         name: Table name.
         partition_by: Optional partition column(s).
-        mode: Write mode — ``"overwrite"`` or ``"append"``.
+        mode: Write mode. Defaults to ``"overwrite"`` when omitted.
+              Supported values are ``"overwrite"`` and ``"append"``.
+        rows_in: Number of rows read from the source DataFrame. This value is
+                 returned and logged as rows written, rather than counting the
+                 full target table after write.
         logger: Logger for structured output.
 
     Returns:
         Number of rows written.
     """
 
-    #rows_written = df.count()
-
     full_table = f"{namespace}.{name}"
-    logger.info(f"Writing table: {full_table} (mode={mode})")
+    # Default mode
+    mode = (mode or "overwrite").lower()
+
+    if mode not in {"overwrite", "append"}:
+        raise ValueError(
+            f"Unsupported write mode '{mode}' for {full_table}. "
+            "Supported modes are 'overwrite' and 'append'."
+        )
+
+    exists = table_exists(spark, full_table)
+
+    logger.info(f"Writing table: {full_table} (mode={mode}, exists={exists})")
+
+    if mode == "append" and not exists:
+        raise ValueError(
+            f"Cannot append to {full_table} because the table does not exist. "
+            "Use mode='overwrite' or omit mode to create the table."
+        )
+
+    rows_written = rows_in
 
     writer = df.writeTo(full_table)
 
@@ -133,7 +174,6 @@ def write_table(
     else:
         writer.createOrReplace()
 
-    rows_written = spark.table(full_table).count()
     logger.info(f"Wrote {rows_written} rows → {full_table}")
 
     return rows_written

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
-    write_to_delta,
+    write_table,
 )
 
 
@@ -14,6 +14,7 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
         ("file.tsv", None, "tsv"),
         ("file.csv", None, "csv"),
         ("file.xml", None, "xml"),
+        ("file.parquet", None, "parquet"),
         ("file.unknown", None, "csv"),  # default fallback from detect_format()
         ("file", None, "csv"),  # no extension → fallback to csv
     ],
@@ -62,98 +63,93 @@ def test_load_table_data_raises_for_unsupported_format():
         )
 
 
-def test_write_to_delta_creates_table_overwrite():
+def test_write_table_creates_or_replaces_table_overwrite():
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
 
-    mock_df.count.return_value = 25
+    mock_spark.table.side_effect = Exception("table does not exist")
 
     mock_writer = MagicMock()
-    mock_df.write.format.return_value = mock_writer
-    mock_writer.mode.return_value = mock_writer
-    mock_writer.option.return_value = mock_writer
+    mock_df.writeTo.return_value = mock_writer
 
-    rows_written = write_to_delta(
+    rows_written = write_table(
         df=mock_df,
         spark=mock_spark,
-        namespace="tenant",
-        namespace_base_path="t1",
-        name="personal_test_table",
-        silver_path="/tmp/silver",
+        namespace="my.dataset",
+        name="events",
         partition_by=None,
         mode="overwrite",
+        rows_in=25,
         logger=mock_logger,
     )
 
-    table_path = "t1/personal_test_table"
-
-    mock_df.count.assert_called_once()
-    mock_df.write.format.assert_called_once_with("delta")
-    mock_writer.mode.assert_called_once_with("overwrite")
-    mock_writer.option.assert_called_once_with("overwriteSchema", "true")
-    mock_writer.save.assert_called_once_with(table_path)
-    mock_spark.sql.assert_called_once()
-
-    sql_arg = mock_spark.sql.call_args[0][0]
-    assert "CREATE TABLE IF NOT EXISTS `tenant`.`personal_test_table`" in sql_arg
-    assert f"LOCATION '{table_path}'" in sql_arg
-
+    mock_df.writeTo.assert_called_once_with("my.dataset.events")
+    mock_writer.createOrReplace.assert_called_once_with()
+    mock_writer.append.assert_not_called()
     assert rows_written == 25
 
 
-def test_write_to_delta_partitioned_append():
+def test_write_table_partitioned_append_existing_table():
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
 
-    mock_df.count.return_value = 100
+    mock_spark.table.return_value.limit.return_value.count.return_value = 1
 
     mock_writer = MagicMock()
-    mock_df.write.format.return_value = mock_writer
-    mock_writer.mode.return_value = mock_writer
-    mock_writer.partitionBy.return_value = mock_writer
+    mock_df.writeTo.return_value = mock_writer
+    mock_writer.partitionedBy.return_value = mock_writer
 
-    rows_written = write_to_delta(
+    rows_written = write_table(
         df=mock_df,
         spark=mock_spark,
-        namespace="tenant",
-        namespace_base_path="base_path",
+        namespace="my.dataset",
         name="events",
-        silver_path="/tmp/silver",
         partition_by=["load_date"],
         mode="append",
+        rows_in=100,
         logger=mock_logger,
     )
 
-    table_path = "base_path/events"
-
-    mock_df.write.format.assert_called_once_with("delta")
-    mock_writer.mode.assert_called_once_with("append")
-    mock_writer.partitionBy.assert_called_once_with(["load_date"])
-    mock_writer.save.assert_called_once_with(table_path)
-
-    mock_writer.option.assert_not_called()
+    mock_df.writeTo.assert_called_once_with("my.dataset.events")
+    mock_writer.partitionedBy.assert_called_once_with("load_date")
+    mock_writer.append.assert_called_once_with()
+    mock_writer.createOrReplace.assert_not_called()
     assert rows_written == 100
 
 
-@patch("data_lakehouse_ingest.orchestrator.io_utils.SparkSession")
-def test_write_to_delta_creates_table(mock_spark):
+def test_write_table_append_missing_table_raises():
     mock_logger = MagicMock()
     mock_df = MagicMock()
-    mock_df.write.format.return_value.mode.return_value = mock_df.write
-    write_to_delta(
-        mock_df,
-        mock_spark,
-        "tenant",
-        "t1",
-        "personal_test_table",
-        "/tmp/silver",
-        None,
-        "overwrite",
-        mock_logger,
-    )
+    mock_spark = MagicMock()
 
-    # Verify info was logged with the expected keyword
-    info_calls = [str(call) for call in mock_logger.info.call_args_list]
-    assert any("Wrote" in call for call in info_calls)
+    mock_spark.table.side_effect = Exception("table does not exist")
+
+    with pytest.raises(ValueError, match="Cannot append to my.dataset.events"):
+        write_table(
+            df=mock_df,
+            spark=mock_spark,
+            namespace="my.dataset",
+            name="events",
+            partition_by=None,
+            mode="append",
+            rows_in=10,
+            logger=mock_logger,
+        )
+
+    mock_df.writeTo.assert_not_called()
+
+
+def test_write_table_invalid_mode_raises():
+    with pytest.raises(ValueError, match="Unsupported write mode 'merge'"):
+        write_table(
+            df=MagicMock(),
+            spark=MagicMock(),
+            namespace="my.dataset",
+            name="events",
+            partition_by=None,
+            mode="merge",
+            rows_in=10,
+            logger=MagicMock(),
+        )

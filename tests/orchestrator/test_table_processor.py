@@ -88,7 +88,7 @@ def test_process_table_success(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
     result = process_table(
         spark=mock_spark,
@@ -109,7 +109,7 @@ def test_process_table_success(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": "csv",
         "schema_source": SchemaSource.SCHEMA_SQL,
@@ -214,7 +214,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     table_with_schema = {
@@ -240,7 +240,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": "csv",
         "schema_source": SchemaSource.SCHEMA_STRUCTURED,
@@ -256,7 +256,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 
     mock_apply_comments.assert_called_once()
     _, kwargs = mock_apply_comments.call_args
-    assert kwargs["full_table_name"] == "tenant_alpha__dataset.test_table"
+    assert kwargs["full_table_name"] == "tenant_alpha.dataset.test_table"
     assert kwargs["table_schema"] == [
         {"column": "gene_id", "type": "string", "comment": "Gene identifier"}
     ]
@@ -291,7 +291,7 @@ def test_process_table_applies_delta_comments_for_structured_schema(
 
     _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -355,7 +355,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
     result = process_table(
         spark=mock_spark,
@@ -375,7 +375,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": "csv",
         "schema_source": SchemaSource.SCHEMA_SQL,
@@ -420,7 +420,7 @@ def test_process_table_does_not_apply_delta_comments_for_non_structured_schema(
 
     _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -471,7 +471,7 @@ def test_process_table_data_load_failure(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     result = process_table(
@@ -576,7 +576,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
 
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     result = process_table(
@@ -597,7 +597,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": "csv",
         "schema_source": SchemaSource.SCHEMA_SQL,
@@ -643,7 +643,7 @@ def test_process_table_sets_logger_table_context_when_context_filter_present(
 
     _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -706,7 +706,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
 
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     result = process_table(
@@ -719,7 +719,7 @@ def test_process_table_uses_fallback_reader_options_when_loader_has_no_get_defau
     )
 
     assert result.status == ProcessStatus.SUCCESS
-    assert result.target_table == "tenant_alpha__dataset.test_table"
+    assert result.target_table == "tenant_alpha.dataset.test_table"
 
     # Assert fallback delimiter for TSV was used
     _, args, _ = mock_load_data.mock_calls[0]
@@ -781,7 +781,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     df_override = MagicMock()
@@ -806,7 +806,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": None,
         "schema_source": SchemaSource.SCHEMA_SQL,
@@ -838,7 +838,7 @@ def test_process_table_dataframe_override_skips_bronze_loading(
     _, kwargs = mock_write_table.call_args
     assert kwargs["df"] == df_override
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -888,7 +888,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     df_override = MagicMock()
@@ -938,7 +938,7 @@ def test_process_table_dataframe_override_sets_format_from_table_or_default(
         kwargs = call.kwargs
         assert kwargs["name"] == "test_table"
         assert kwargs["mode"] == "overwrite"
-        assert kwargs["namespace"] == "tenant_alpha__dataset"
+        assert kwargs["namespace"] == "tenant_alpha.dataset"
 
 
 # ---------------------------------------------------------------------
@@ -985,7 +985,7 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     df_override = MagicMock()
@@ -1033,7 +1033,7 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     _, kwargs = mock_write_table.call_args
     assert kwargs["df"] == df_override
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -1043,7 +1043,7 @@ def test_process_table_dataframe_override_applies_delta_comments_when_available(
     mock_apply_comments.assert_called_once()
     _, kwargs = mock_apply_comments.call_args
     assert kwargs["spark"] == mock_spark
-    assert kwargs["full_table_name"] == "tenant_alpha__dataset.test_table"
+    assert kwargs["full_table_name"] == "tenant_alpha.dataset.test_table"
     assert kwargs["table_schema"] == [
         {"column": "gene_id", "type": "string", "comment": "Gene identifier"}
     ]
@@ -1102,7 +1102,7 @@ def test_process_table_reports_dropped_columns(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     result = process_table(
@@ -1123,7 +1123,7 @@ def test_process_table_reports_dropped_columns(
     assert result_dict == {
         "name": "test_table",
         "tenant": "tenant_alpha",
-        "target_table": "tenant_alpha__dataset.test_table",
+        "target_table": "tenant_alpha.dataset.test_table",
         "mode": WriteMode.OVERWRITE,
         "format": "csv",
         "schema_source": SchemaSource.SCHEMA_SQL,
@@ -1166,7 +1166,7 @@ def test_process_table_reports_dropped_columns(
 
     _, kwargs = mock_write_table.call_args
     assert kwargs["spark"] == mock_spark
-    assert kwargs["namespace"] == "tenant_alpha__dataset"
+    assert kwargs["namespace"] == "tenant_alpha.dataset"
     assert kwargs["name"] == "test_table"
     assert kwargs["partition_by"] is None
     assert kwargs["mode"] == "overwrite"
@@ -1226,7 +1226,7 @@ def test_process_table_applies_table_level_string_comment(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     table = {
@@ -1251,7 +1251,7 @@ def test_process_table_applies_table_level_string_comment(
 
     mock_apply_table_comment.assert_called_once_with(
         spark=mock_spark,
-        full_table_name="tenant_alpha__dataset.test_table",
+        full_table_name="tenant_alpha.dataset.test_table",
         table_comment="Test table comment",
         logger=mock_logger,
         require_existing_table=True,
@@ -1305,7 +1305,7 @@ def test_process_table_applies_table_level_dict_comment(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     table_comment = {
@@ -1335,7 +1335,7 @@ def test_process_table_applies_table_level_dict_comment(
 
     mock_apply_table_comment.assert_called_once_with(
         spark=mock_spark,
-        full_table_name="tenant_alpha__dataset.test_table",
+        full_table_name="tenant_alpha.dataset.test_table",
         table_comment=table_comment,
         logger=mock_logger,
         require_existing_table=True,
@@ -1395,7 +1395,7 @@ def test_process_table_applies_table_and_column_comments(
 ):
     ctx = {
         "tenant": "tenant_alpha",
-        "namespace": "tenant_alpha__dataset",
+        "namespace": "tenant_alpha.dataset",
     }
 
     table = {

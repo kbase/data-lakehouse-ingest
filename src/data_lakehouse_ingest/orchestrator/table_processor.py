@@ -26,7 +26,7 @@ from data_lakehouse_ingest.orchestrator.schema_utils import (
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
-    write_to_delta,
+    write_table,
 )
 from data_lakehouse_ingest.utils.delta_comments import (
     apply_comments_from_table_schema,
@@ -82,8 +82,9 @@ def process_table(
         ctx (dict[str, Any]):
             Execution context containing keys such as:
                 - "tenant": Tenant identifier
-                - "namespace": Fully qualified namespace for the Delta tables
-                - "namespace_base_path": Base path under which Silver tables will be written
+                - "namespace": Fully qualified namespace (e.g., ``my.dataset`` or ``kbase.dataset``).
+                  In the Iceberg/Polaris flow the catalog manages storage, so no base
+                  path is included in ctx; ``silver_path`` is always None on the result.
 
         table (dict):
             Table configuration dictionary containing keys such as:
@@ -134,11 +135,7 @@ def process_table(
         ...     spark=spark,
         ...     logger=logger,
         ...     loader=loader,
-        ...     ctx={
-        ...         "tenant": "tenant_alpha",
-        ...         "namespace": "tenant_alpha__dataset",
-        ...         "namespace_base_path": "s3a://silver/"
-        ...     },
+        ...     ctx={"tenant": "kbase", "namespace": "kbase.ke_pangenome"},
         ...     table={"name": "genome", "format": "csv"},
         ...     run_started_at_iso="2025-10-31T12:00:00Z"
         ... )
@@ -155,10 +152,12 @@ def process_table(
 
     tenant = ctx["tenant"]
     namespace = ctx["namespace"]
-    namespace_base_path = ctx["namespace_base_path"]
 
     name = table["name"]
-    silver_path = namespace_base_path
+    # Iceberg/Polaris catalogs manage storage paths internally; the legacy
+    # `namespace_base_path` no longer lives in ctx. Keep `silver_path` in the
+    # result schema (= None) so existing reporting code stays compatible.
+    silver_path: str | None = None
 
     start_table_time = datetime.now(timezone.utc)
 
@@ -170,7 +169,7 @@ def process_table(
     fmt: str | None = None
     input_source = InputSource.DATAFRAME if df_override is not None else InputSource.BRONZE
 
-    logger.info(f"   Silver: {silver_path}")
+    logger.info(f"   Target: {namespace}.{name}")
 
     # --- Load data (either DF override OR Bronze path) ---
     try:
@@ -233,13 +232,11 @@ def process_table(
             f"Supported modes are: {[m.value for m in WriteMode]}"
         ) from e
 
-    rows_written = write_to_delta(
+    rows_written = write_table(
         df=df,
         spark=spark,
         namespace=namespace,
-        namespace_base_path=namespace_base_path,
         name=name,
-        silver_path=silver_path,
         partition_by=partition_by,
         mode=mode.value,
         logger=logger,
@@ -274,7 +271,10 @@ def process_table(
 
     rows_rejected = 0
     partitions_written = None
-    quarantine_path = f"{silver_path}/quarantine/{run_started_at_iso.replace(':', '-')}/"
+    # Quarantine path is meaningful only on the legacy Delta + S3-path flow.
+    # The Iceberg/Polaris flow lets the catalog manage layout and does not
+    # have a stable directory under which to drop rejected rows.
+    quarantine_path: str | None = None
     elapsed_sec = (datetime.now(timezone.utc) - start_table_time).total_seconds()
 
     logger.info(f"Table {namespace}.{name}: {rows_in} → {rows_written} rows in {elapsed_sec:.2f}s")

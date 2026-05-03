@@ -21,7 +21,7 @@ from .orchestrator.init_utils import init_logger, init_run_context
 from .orchestrator.table_batch_processor import process_tables
 
 from berdl_notebook_utils.setup_spark_session import get_spark_session
-from berdl_notebook_utils.clients import get_minio_client
+from berdl_notebook_utils.clients import get_s3_client
 
 
 def ingest(
@@ -54,9 +54,9 @@ def ingest(
 
     Notes:
         - SparkSession may be provided by the caller or auto-initialized.
-        - A valid MinIO client is REQUIRED for ingestion.
-          If `minio_client` is not provided, `get_minio_client()` is attempted.
-          If MinIO cannot be initialized, the pipeline fails immediately.
+        - A valid MinIO/S3 client is REQUIRED for ingestion.
+          If `minio_client` is not provided, `get_s3_client()` is attempted.
+          If the client cannot be initialized, the pipeline fails immediately.
         - Supports multiple file formats (CSV, TSV, JSON, XML, Parquet).
         - Schema enforcement supports SQL-style schemas (`schema_sql`) and structured schemas (`schema` list-of-maps).
         - Each table in the configuration is processed independently.
@@ -101,16 +101,14 @@ def ingest(
     # MinIO Client Initialization
     # ----------------------------------------------------------------------
     if minio_client is None:
-        logger.info(
-            "No MinIO client provided — attempting auto-initialization via get_minio_client()"
-        )
+        logger.info("No MinIO client provided — attempting auto-initialization via get_s3_client()")
         try:
-            minio_client = get_minio_client()
-            logger.info("MinIO client successfully initialized via get_minio_client()")
+            minio_client = get_s3_client()
+            logger.info("MinIO client successfully initialized via get_s3_client()")
         except Exception as e:
             error_msg = (
                 "MinIO client is required for ingestion but could not be initialized. "
-                "Call get_minio_client() and pass it explicitly into ingest(...)."
+                "Call get_s3_client() and pass it explicitly into ingest(...)."
             )
             return log_error(
                 logger=logger,
@@ -120,7 +118,7 @@ def ingest(
                 exc=e,
             )
 
-    # Defensive check in case get_minio_client() returned None without raising
+    # Defensive check in case get_s3_client() returned None without raising
     if minio_client is None:
         error_msg = "MinIO client is required for ingestion but was not provided or initialized."
         return log_error(

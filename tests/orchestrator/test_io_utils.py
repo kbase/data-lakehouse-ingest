@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
-    write_to_delta,
+    write_table,
 )
 
 
@@ -62,98 +62,99 @@ def test_load_table_data_raises_for_unsupported_format():
         )
 
 
-def test_write_to_delta_creates_table_overwrite():
+def test_write_table_creates_or_replaces():
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
-
-    mock_df.count.return_value = 25
-
     mock_writer = MagicMock()
-    mock_df.write.format.return_value = mock_writer
-    mock_writer.mode.return_value = mock_writer
-    mock_writer.option.return_value = mock_writer
+    mock_df.writeTo.return_value = mock_writer
+    mock_spark.table.return_value.count.return_value = 42
 
-    rows_written = write_to_delta(
+    rows = write_table(
         df=mock_df,
         spark=mock_spark,
-        namespace="tenant",
-        namespace_base_path="t1",
-        name="personal_test_table",
-        silver_path="/tmp/silver",
+        namespace="kbase.ke_pangenome",
+        name="genome",
         partition_by=None,
         mode="overwrite",
         logger=mock_logger,
     )
 
-    table_path = "t1/personal_test_table"
+    mock_df.writeTo.assert_called_once_with("kbase.ke_pangenome.genome")
+    mock_writer.createOrReplace.assert_called_once()
+    mock_writer.append.assert_not_called()
+    assert rows == 42
 
-    mock_df.count.assert_called_once()
-    mock_df.write.format.assert_called_once_with("delta")
-    mock_writer.mode.assert_called_once_with("overwrite")
-    mock_writer.option.assert_called_once_with("overwriteSchema", "true")
-    mock_writer.save.assert_called_once_with(table_path)
-    mock_spark.sql.assert_called_once()
-
-    sql_arg = mock_spark.sql.call_args[0][0]
-    assert "CREATE TABLE IF NOT EXISTS `tenant`.`personal_test_table`" in sql_arg
-    assert f"LOCATION '{table_path}'" in sql_arg
-
-    assert rows_written == 25
+    info_calls = [str(call) for call in mock_logger.info.call_args_list]
+    assert any("Wrote" in call for call in info_calls)
 
 
-def test_write_to_delta_partitioned_append():
+def test_write_table_append_mode():
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
-
-    mock_df.count.return_value = 100
-
     mock_writer = MagicMock()
-    mock_df.write.format.return_value = mock_writer
-    mock_writer.mode.return_value = mock_writer
-    mock_writer.partitionBy.return_value = mock_writer
+    mock_df.writeTo.return_value = mock_writer
+    mock_spark.table.return_value.count.return_value = 10
 
-    rows_written = write_to_delta(
+    rows = write_table(
         df=mock_df,
         spark=mock_spark,
-        namespace="tenant",
-        namespace_base_path="base_path",
+        namespace="my.dataset",
         name="events",
-        silver_path="/tmp/silver",
-        partition_by=["load_date"],
+        partition_by=None,
         mode="append",
         logger=mock_logger,
     )
 
-    table_path = "base_path/events"
-
-    mock_df.write.format.assert_called_once_with("delta")
-    mock_writer.mode.assert_called_once_with("append")
-    mock_writer.partitionBy.assert_called_once_with(["load_date"])
-    mock_writer.save.assert_called_once_with(table_path)
-
-    mock_writer.option.assert_not_called()
-    assert rows_written == 100
+    mock_writer.append.assert_called_once()
+    mock_writer.createOrReplace.assert_not_called()
+    assert rows == 10
 
 
-@patch("data_lakehouse_ingest.orchestrator.io_utils.SparkSession")
-def test_write_to_delta_creates_table(mock_spark):
+def test_write_table_with_partition_by():
     mock_logger = MagicMock()
     mock_df = MagicMock()
-    mock_df.write.format.return_value.mode.return_value = mock_df.write
-    write_to_delta(
-        mock_df,
-        mock_spark,
-        "tenant",
-        "t1",
-        "personal_test_table",
-        "/tmp/silver",
-        None,
-        "overwrite",
-        mock_logger,
+    mock_spark = MagicMock()
+    mock_writer = MagicMock()
+    mock_partitioned_writer = MagicMock()
+    mock_df.writeTo.return_value = mock_writer
+    mock_writer.partitionedBy.return_value = mock_partitioned_writer
+    mock_spark.table.return_value.count.return_value = 5
+
+    write_table(
+        df=mock_df,
+        spark=mock_spark,
+        namespace="kbase.dataset",
+        name="table1",
+        partition_by="year",
+        mode="overwrite",
+        logger=mock_logger,
     )
 
-    # Verify info was logged with the expected keyword
-    info_calls = [str(call) for call in mock_logger.info.call_args_list]
-    assert any("Wrote" in call for call in info_calls)
+    mock_writer.partitionedBy.assert_called_once_with("year")
+    mock_partitioned_writer.createOrReplace.assert_called_once()
+
+
+def test_write_table_with_partition_by_list():
+    mock_logger = MagicMock()
+    mock_df = MagicMock()
+    mock_spark = MagicMock()
+    mock_writer = MagicMock()
+    mock_partitioned_writer = MagicMock()
+    mock_df.writeTo.return_value = mock_writer
+    mock_writer.partitionedBy.return_value = mock_partitioned_writer
+    mock_spark.table.return_value.count.return_value = 5
+
+    write_table(
+        df=mock_df,
+        spark=mock_spark,
+        namespace="kbase.dataset",
+        name="table1",
+        partition_by=["year", "month"],
+        mode="overwrite",
+        logger=mock_logger,
+    )
+
+    mock_writer.partitionedBy.assert_called_once_with("year", "month")
+    mock_partitioned_writer.createOrReplace.assert_called_once()

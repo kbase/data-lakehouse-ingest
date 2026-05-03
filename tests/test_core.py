@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock, patch
 from pyspark.sql import DataFrame
 from data_lakehouse_ingest.core import ingest
+from data_lakehouse_ingest.orchestrator.models import ProcessStatus
 
 
 # ---------------------------------------------------------------------
@@ -18,6 +19,19 @@ def mock_spark():
     mock_df.select.return_value = mock_df
     mock_df.count.return_value = 5
     spark.read.option.return_value.options.return_value.json.return_value = mock_df
+
+    # --- Mock DESCRIBE NAMESPACE EXTENDED ---
+    fake_row = MagicMock()
+    fake_row.info_name = "location"
+    fake_row.info_value = "s3a://bucket/silver/"  # MUST NOT be None
+
+    fake_result_df = MagicMock()
+    fake_result_df.collect.return_value = [fake_row]
+
+    spark.sql.return_value = fake_result_df
+
+    # --- Prevent failures in setCurrentDatabase ---
+    spark.catalog.setCurrentDatabase.return_value = None
 
     return spark
 
@@ -37,7 +51,7 @@ def mock_logger():
 @patch("data_lakehouse_ingest.core.init_run_context")
 @patch("data_lakehouse_ingest.core.process_tables")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 @patch("data_lakehouse_ingest.core.get_spark_session")
 def test_ingest_autoinit_spark_and_minio_success(
     mock_get_spark,
@@ -50,7 +64,7 @@ def test_ingest_autoinit_spark_and_minio_success(
     mock_get_minio.return_value = MagicMock()
 
     mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
-    mock_process_tables.return_value = ([{"name": "table1", "status": "success"}], [])
+    mock_process_tables.return_value = ([{"name": "table1", "status": ProcessStatus.SUCCESS}], [])
 
     # ConfigLoader should be constructible
     mock_configloader.return_value = MagicMock()
@@ -74,7 +88,7 @@ def test_ingest_autoinit_spark_failure(mock_get_spark, mock_logger):
 
 
 # Test that ingest() returns a failure report when MinIO auto-initialization raises an exception.
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 @patch("data_lakehouse_ingest.core.get_spark_session")
 def test_ingest_autoinit_minio_failure(mock_get_spark, mock_get_minio, mock_logger):
     mock_get_spark.return_value = MagicMock()
@@ -92,7 +106,7 @@ def test_ingest_autoinit_minio_failure(mock_get_spark, mock_get_minio, mock_logg
 # Test that ingest() returns a validation failure when ConfigLoader raises an exception
 # while parsing or validating the configuration.
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 def test_ingest_config_configloader_failure(
     mock_get_minio, mock_configloader, mock_spark, mock_logger
 ):
@@ -108,7 +122,7 @@ def test_ingest_config_configloader_failure(
 # Test that ingest() successfully processes a valid configuration and returns
 # a successful table processing report.
 @patch("data_lakehouse_ingest.orchestrator.init_utils.create_namespace_if_not_exists")
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 @patch("data_lakehouse_ingest.core.process_tables")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
 def test_ingest_config_valid_json(
@@ -120,7 +134,7 @@ def test_ingest_config_valid_json(
 ):
     mock_minio.return_value = MagicMock()
 
-    mock_process.return_value = ([{"name": "table1", "status": "success"}], [])
+    mock_process.return_value = ([{"name": "table1", "status": ProcessStatus.SUCCESS}], [])
 
     loader = mock_configloader.return_value
 
@@ -151,17 +165,17 @@ def test_ingest_config_valid_json(
 
     assert result["success"] is True
     assert len(result["tables"]) == 1
-    assert result["tables"][0]["status"] == "success"
+    assert result["tables"][0]["status"] == ProcessStatus.SUCCESS
 
 
 # ---------------------------------------------------------------------
-# Defensive MinIO init branch: get_minio_client returns None without raising
+# Defensive MinIO init branch: get_s3_client returns None without raising
 # ---------------------------------------------------------------------
 
 
-# Test that ingest() defensively fails when get_minio_client() returns None
+# Test that ingest() defensively fails when get_s3_client() returns None
 # instead of a valid MinIO client instance.
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 def test_ingest_minio_autoinit_returns_none_triggers_defensive_failure(
     mock_get_minio,
     mock_spark,
@@ -214,7 +228,7 @@ def test_ingest_minio_autoinit_returns_none_triggers_defensive_failure(
 @patch("data_lakehouse_ingest.core.init_run_context")
 @patch("data_lakehouse_ingest.core.process_tables")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 def test_ingest_dataframes_invalid_inputs_return_specific_validation_error(
     mock_get_minio,
     mock_configloader,
@@ -269,7 +283,7 @@ def test_ingest_dataframes_invalid_inputs_return_specific_validation_error(
 @patch("data_lakehouse_ingest.core.init_run_context")
 @patch("data_lakehouse_ingest.core.process_tables")
 @patch("data_lakehouse_ingest.core.ConfigLoader")
-@patch("data_lakehouse_ingest.core.get_minio_client")
+@patch("data_lakehouse_ingest.core.get_s3_client")
 def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
     mock_get_minio,
     mock_configloader,
@@ -283,7 +297,10 @@ def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
 
     mock_init_ctx.return_value = {"tables": [{"name": "table1"}, {"name": "table2"}]}
     mock_process_tables.return_value = (
-        [{"name": "table1", "status": "success"}, {"name": "table2", "status": "success"}],
+        [
+            {"name": "table1", "status": ProcessStatus.SUCCESS},
+            {"name": "table2", "status": ProcessStatus.SUCCESS},
+        ],
         [],
     )
 

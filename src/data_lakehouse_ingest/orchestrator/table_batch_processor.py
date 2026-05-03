@@ -21,9 +21,11 @@ the top-level `ingest()` function, resulting in cleaner orchestration flow.
 from typing import Any
 from .error_utils import error_entry_for_exception
 from .table_processor import process_table
+from .models import ProcessStatus
 import logging
 from pyspark.sql import SparkSession, DataFrame
 from minio import Minio
+from dataclasses import asdict
 
 
 def process_tables(
@@ -75,7 +77,8 @@ def process_tables(
         tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             A tuple containing:
                 - `table_reports`: List of per-table result dictionaries,
-                  each containing status, metrics, and/or error details.
+                  each containing status, metrics, and, for failures, diagnostic
+                  details such as error message and optional traceback.
                 - `error_list`: List of normalized error entries for all
                   tables that encountered exceptions.
 
@@ -106,7 +109,22 @@ def process_tables(
                 minio_client=minio_client,
                 df_override=(dataframes or {}).get(table.get("name", "")),
             )
-            table_reports.append(report_row)
+
+            report_dict = asdict(report_row)
+            table_reports.append(report_dict)
+
+            if report_row.status == ProcessStatus.FAILED:
+                error_entry = {
+                    "phase": report_dict.get("phase", "table_processing"),
+                    "table": report_dict.get("name"),
+                    "error": report_dict.get("error", "Unknown table processing error"),
+                }
+
+                if report_dict.get("traceback"):
+                    error_entry["traceback"] = report_dict["traceback"]
+
+                error_list.append(error_entry)
+
         except Exception as e:
             entry = error_entry_for_exception(table, e)
             table_reports.append(entry)

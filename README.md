@@ -1,8 +1,19 @@
 # data\_lakehouse\_ingest
+### Config-Driven PySpark Ingestion Framework for the BER Data Lakehouse
 
 End-to-end ingestion framework for loading data into the BER Data Lakehouse using pyspark and minio.
 
-It reads flat files (CSV, TSV, JSON, XML) from MinIO (S3-compatible), applies optional schema-based casting using SQL-style schema definitions, and writes curated Delta tables to a Spark-based Lakehouse.
+It reads source datasets from MinIO (S3-compatible storage), applies optional schema-based casting using SQL-style schema definitions, and writes curated Delta tables to a Spark-based Lakehouse.
+
+The ingestion framework supports the following input formats from the Bronze layer:
+
+| Format  | Description                                   |
+|---------|-----------------------------------------------|
+| CSV     | Comma-separated flat files                   |
+| TSV     | Tab-separated flat files                     |
+| JSON    | Standard JSON records                        |
+| XML     | Structured XML files                         |
+| Parquet | Columnar storage format optimized for Spark  |
 
 ---
 
@@ -37,6 +48,9 @@ source .venv/bin/activate
 
 ## Usage
 
+For a complete guide on creating configuration files, see:
+[Config JSON Tutorial](tutorial-config-json.md)
+
 The following example demonstrates a full ingestion workflow using Spark and MinIO.
 
 ```python
@@ -49,7 +63,6 @@ cfg_path = r'''
   "tenant": "kbase",
   "dataset": "ke_pangenome",
   "paths": {
-    "data_plane": "s3a://cdm-lake/",
     "bronze_base": "s3a://cdm-lake/tenant-general-warehouse/kbase/datasets/pangenome_ke-source/bronze/",
   },
   "defaults": {
@@ -91,8 +104,10 @@ print(report)
 
 ## Supported schema_sql Data Types
 
-The schema_sql field uses Spark SQL–compatible primitive data types for defining table schemas.
+The schema_sql field supports a subset of Spark SQL data types for defining table schemas.
 Only the following data types are currently supported by the ingestion framework:
+
+### Primitive Types
 ```
 STRING
 INT
@@ -104,6 +119,23 @@ FLOAT
 BOOLEAN
 DATE
 TIMESTAMP
+```
+
+### Complex Types
+```
+ARRAY<T>
+MAP<K,V>
+```
+
+`ARRAY<T>` — Array of elements of type T (e.g., `ARRAY<STRING>`, `ARRAY<INT>`)  
+`MAP<K,V>` — Key-value map where K is the key type and V is the value type
+
+Nested combinations such as the following are also supported:
+
+```
+ARRAY<MAP<STRING,INT>>
+MAP<STRING,ARRAY<INT>>
+MAP<STRING,MAP<STRING,INT>>
 ```
 ---
 

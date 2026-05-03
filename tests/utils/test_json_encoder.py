@@ -4,10 +4,12 @@ import decimal
 import uuid
 from pathlib import Path
 
+from data_lakehouse_ingest.orchestrator.models import ProcessStatus
 from data_lakehouse_ingest.utils.json_encoder import PipelineJSONEncoder
 
 
 def test_json_encoder_serializes_supported_types():
+    """Test that PipelineJSONEncoder serializes supported built-in complex types into JSON-safe values."""
     # Prepare test data
     now_dt = datetime.datetime(2025, 11, 12, 19, 40, 15)
     today_date = datetime.date(2025, 11, 12)
@@ -35,6 +37,8 @@ def test_json_encoder_serializes_supported_types():
 
 
 def test_json_encoder_fallback_to_string():
+    """Test that PipelineJSONEncoder falls back to str(obj) for unsupported custom objects."""
+
     class CustomObj:
         def __str__(self):
             return "custom-object"
@@ -49,6 +53,8 @@ def test_json_encoder_fallback_to_string():
 
 
 def test_json_encoder_handles_unserializable_object():
+    """Test that PipelineJSONEncoder returns a safe placeholder when an object's string conversion fails."""
+
     # Object whose __str__() raises an exception
     class BadObj:
         def __str__(self):
@@ -59,3 +65,10 @@ def test_json_encoder_handles_unserializable_object():
     result = json.loads(json.dumps({"bad": obj}, cls=PipelineJSONEncoder))
 
     assert result["bad"] == "<Unserializable object of type BadObj>"
+
+
+def test_json_encoder_serializes_process_status_enum():
+    """Test that PipelineJSONEncoder serializes ProcessStatus enums using their string value."""
+    result = json.loads(json.dumps({"status": ProcessStatus.SUCCESS}, cls=PipelineJSONEncoder))
+
+    assert result["status"] == "success"

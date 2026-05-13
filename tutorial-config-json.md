@@ -12,15 +12,16 @@
 6. [Enabling or Skipping Tables](#6-enabling-or-skipping-tables)
 7. [Schema Definition Using SQL](#7-schema-definition-using-sql)
 8. [Structured Schema with Metadata](#8-structured-schema-with-metadata)
-9. [Handling Extra Columns](#9-handling-extra-columns)
-10. [Write Modes](#10-write-modes)
-11. [Bronze Path Substitution](#11-bronze-path-substitution)
-12. [Using Only File Names](#12-using-only-file-names)
-13. [Using Wildcards](#13-using-wildcards)
-14. [Full Example Configuration](#14-full-example-configuration)
-15. [Running the Ingestion](#15-running-the-ingestion)
-16. [Passing DataFrames to `ingest()`](#16-passing-dataframes-to-ingest)
-17. [Best Practices](#17-best-practices)
+9. [Table-Level Comments](#9-table-level-comments)
+10. [Handling Extra Columns](#10-handling-extra-columns)
+11. [Write Modes](#11-write-modes)
+12. [Bronze Path Substitution](#12-bronze-path-substitution)
+13. [Using Only File Names](#13-using-only-file-names)
+14. [Using Wildcards](#14-using-wildcards)
+15. [Full Example Configuration](#15-full-example-configuration)
+16. [Running the Ingestion](#16-running-the-ingestion)
+17. [Passing DataFrames to `ingest()`](#17-passing-dataframes-to-ingest)
+18. [Best Practices](#18-best-practices)
 
 The data lakehouse ingest library allows users to load data into **Delta Lake tables** in the BER Data Lakehouse using a **simple JSON configuration file**.
 
@@ -248,6 +249,7 @@ Example:
 | `bronze_path` | Yes | Location of the raw source file(s) in the Bronze layer. |
 | `schema_sql` | One of (`schema_sql` or `schema`) | SQL-style schema definition (e.g., `"id STRING, name STRING"`). |
 | `schema` | One of (`schema_sql` or `schema`) | Structured schema definition that allows metadata such as column comments. |
+| `comment` | Optional | Table-level comment stored as metadata on the target table. |
 | `enabled` | Optional | If set to `false`, the table will be skipped during ingestion. Default is `true`. |
 | `partition_by` | Optional | Column or list of columns used for Delta table partitioning. |
 | `mode` | Optional | Write mode for the Delta table. Supported values: `overwrite` or `append`. Default is `overwrite`. |
@@ -288,6 +290,18 @@ Example:
   ```
 
   This is common when reading directories containing **multiple Parquet files**.
+
+* **Table-Level Comments**
+
+  The optional `comment` field allows users to attach descriptive metadata to a table.
+
+  Example:
+
+  ```json
+  "comment": "Ontology prefix reference table"
+  ```
+
+  For additional examples, see Section 9: Table-Level Comments.
 
 <br>
 <br>
@@ -462,7 +476,30 @@ Since the config content must be valid JSON, certain characters inside `comment`
 
 ---
 
-# 9. Handling Extra Columns
+# 9. Table-Level Comments
+
+In addition to column-level comments, the ingestion configuration can define a **table-level comment** using the `comment` field inside each table definition.
+
+Table-level comments describe the overall purpose and contents of the table. These comments are useful for data catalogs, governance tools, documentation, and AI-assisted data discovery.
+
+Example:
+
+```json
+{
+  "name": "prefix",
+  "schema_sql": "prefix STRING, base STRING",
+  "comment": "This is table-level comment for prefix table",
+  "enabled": true,
+  "partition_by": null,
+  "bronze_path": "${bronze_base}/prefix.tsv"
+}
+```
+<br>
+<br>
+
+---
+
+# 10. Handling Extra Columns
 
 When a schema is defined using `schema_sql` or `schema`, the ingestion framework automatically ensures that **only the columns defined in the schema are written to the final Delta table**.
 
@@ -497,7 +534,7 @@ This behavior applies whether the schema is defined using `schema_sql` or `schem
 
 ---
 
-# 10. Write Modes
+# 11. Write Modes
 
 Default write mode is:
 
@@ -525,7 +562,7 @@ Example:
 
 ---
 
-# 11. Bronze Path Substitution
+# 12. Bronze Path Substitution
 
 If `bronze_base` is defined, it can be reused in table paths.
 
@@ -542,7 +579,7 @@ This helps keep configs shorter and easier to maintain.
 
 ---
 
-# 12. Using Only File Names
+# 13. Using Only File Names
 
 If all files are located in the `bronze_base` directory, the path can be simplified.
 
@@ -559,7 +596,7 @@ The ingestion framework will resolve it relative to `bronze_base`.
 
 ---
 
-# 13. Using Wildcards
+# 14. Using Wildcards
 
 Wildcards can be used when ingesting multiple files or folders.
 
@@ -580,7 +617,7 @@ This allows ingestion from:
 
 ---
 
-# 14. Full Example Configuration
+# 15. Full Example Configuration
 
 ```json
 {
@@ -600,12 +637,14 @@ This allows ingestion from:
       "name": "entailed_edge",
       "enabled": true,
       "schema_sql": "subject STRING, predicate STRING, object STRING",
+      "comment": "This is table-level comment for entailed_edge table",
       "bronze_path": "${bronze_base}/entailed_edge.tsv"
     },
     {
       "name": "prefix",
       "enabled": true,
       "mode": "append",
+      "comment": "This is table-level comment for prefix table",
       "schema": [
         {
           "column": "prefix",
@@ -637,7 +676,7 @@ In this configuration:
 
 ---
 
-# 15. Running the Ingestion
+# 16. Running the Ingestion
 
 The configuration JSON can be provided to the ingestion framework in two ways:
 
@@ -707,7 +746,7 @@ The ingestion framework will:
 
 ---
 
-# 16. Passing DataFrames to `ingest()`
+# 17. Passing DataFrames to `ingest()`
 
 In addition to reading source files from `bronze_path`, the ingestion framework can also ingest one or more **preloaded Spark DataFrames**.
 
@@ -832,7 +871,7 @@ This allows you to combine both approaches in a single ingestion run.
 
 ---
 
-# 17. Best Practices
+# 18. Best Practices
 
 - Store configs alongside datasets in the Bronze layer
 - Use `${bronze_base}` to avoid repeating paths

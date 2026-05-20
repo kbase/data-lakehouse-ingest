@@ -1,7 +1,7 @@
 """
 Initialization utilities for the Data Lakehouse Ingest framework.
 Handles logger setup and Spark session context initialization,
-including tenant creation, catalog switching, and configuration extraction.
+including tenant creation, namespace management, and configuration extraction.
 """
 
 import logging
@@ -62,9 +62,11 @@ def init_run_context(
     """
     Initialize the ingestion run context based on config.
 
-    Uses the JupyterHub helper `create_namespace_if_not_exists` instead of
-    SQL CREATE DATABASE statements. The behavior depends on the 'is_tenant'
-    flag in the config.
+    Uses the Iceberg catalog flow via `create_namespace_if_not_exists(iceberg=True)`
+    to create namespaces with catalog-level isolation (no governance prefixes).
+
+    The catalog is determined by the tenant name: tenant-based configs use the
+    tenant name as the catalog, while personal configs use the ``"my"`` catalog.
 
     Args:
         spark (SparkSession): Active Spark session.
@@ -88,32 +90,24 @@ def init_run_context(
     logger.info(f"Found {len(tables)} table(s) to process")
 
     # ----------------------------------------------------------------------
-    # Create namespace using JupyterHub helper
+    # Create namespace using Iceberg catalog flow
     # ----------------------------------------------------------------------
     try:
         if tenant:
-            # Multi-tenant governed environment
+            # Multi-tenant: tenant name is used as the Iceberg catalog name
             namespace = create_namespace_if_not_exists(
                 spark,
                 namespace=dataset,
                 tenant_name=tenant,
+                iceberg=True,
             )
             logger.info(f"Tenant namespace created/accessed: {namespace}")
         else:
-            # Personal (user-level) environment
-            namespace = create_namespace_if_not_exists(spark, dataset)
+            # Personal: uses the "my" catalog
+            namespace = create_namespace_if_not_exists(spark, dataset, iceberg=True)
             logger.info(f"Personal namespace created/accessed: {namespace}")
 
-        spark.catalog.setCurrentDatabase(namespace)
-
-        # Extract physical namespace path
-        try:
-            ns_info = spark.sql(f"DESCRIBE NAMESPACE EXTENDED {namespace}").collect()
-            base_path = [r.info_value for r in ns_info if r.info_name.lower() == "location"][0]
-            logger.info(f"Namespace storage location: {base_path}")
-        except Exception as e:
-            logger.warning(f"Unable to determine namespace storage location for '{namespace}': {e}")
-            base_path = None
+        spark.sql(f"USE {namespace}")
 
     except Exception as e:
         logger.error(
@@ -127,6 +121,5 @@ def init_run_context(
         "tenant": tenant,
         "dataset": dataset,
         "namespace": namespace,
-        "namespace_base_path": base_path,
         "tables": tables,
     }

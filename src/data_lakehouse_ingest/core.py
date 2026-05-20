@@ -101,9 +101,7 @@ def ingest(
     # MinIO Client Initialization
     # ----------------------------------------------------------------------
     if minio_client is None:
-        logger.info(
-            "No MinIO client provided — attempting auto-initialization via get_s3_client()"
-        )
+        logger.info("No MinIO client provided — attempting auto-initialization via get_s3_client()")
         try:
             minio_client = get_s3_client()
             logger.info("MinIO client successfully initialized via get_s3_client()")

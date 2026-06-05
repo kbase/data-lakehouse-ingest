@@ -12,7 +12,7 @@ from minio import Minio
 from pyspark.sql import SparkSession, DataFrame
 
 from .utils.report_utils import generate_report
-from .logger import safe_log_json
+from .logger import safe_log_json, finalize_logger
 from .config_loader import ConfigLoader
 from .orchestrator.models import ProcessStatus
 
@@ -72,164 +72,176 @@ def ingest(
     """
     logger = init_logger(logger)
 
-    # ----------------------------------------------------------------------
-    # Spark Session Initialization
-    # ----------------------------------------------------------------------
-    """
-    Initialize a SparkSession if not provided by the caller.
+    try:
+        # ----------------------------------------------------------------------
+        # Spark Session Initialization
+        # ----------------------------------------------------------------------
+        """
+        Initialize a SparkSession if not provided by the caller.
 
-    Since `berdl_notebook_utils` is an explicit project dependency, this function
-    uses `get_spark_session()` from `berdl_notebook_utils.setup_spark_session`
-    to construct a properly configured Spark session. If Spark initialization fails,
-    the error is logged and a structured failure report is returned.
-    """
-    if spark is None:
-        logger.info("No SparkSession provided — initializing via get_spark_session()")
-        try:
-            spark = get_spark_session()
-        except Exception as e:
-            error_msg = f"Failed to initialize Spark session via get_spark_session(): {e}"
-            return log_error(
-                logger=logger,
-                error_msg=error_msg,
-                phase="spark_initialization",
-                started_at=started_at,
-                exc=e,
-            )
+        Since `berdl_notebook_utils` is an explicit project dependency, this function
+        uses `get_spark_session()` from `berdl_notebook_utils.setup_spark_session`
+        to construct a properly configured Spark session. If Spark initialization fails,
+        the error is logged and a structured failure report is returned.
+        """
+        if spark is None:
+            logger.info("No SparkSession provided — initializing via get_spark_session()")
+            try:
+                spark = get_spark_session()
+            except Exception as e:
+                error_msg = f"Failed to initialize Spark session via get_spark_session(): {e}"
+                return log_error(
+                    logger=logger,
+                    error_msg=error_msg,
+                    phase="spark_initialization",
+                    started_at=started_at,
+                    exc=e,
+                )
 
-    # ----------------------------------------------------------------------
-    # MinIO Client Initialization
-    # ----------------------------------------------------------------------
-    if minio_client is None:
-        logger.info("No MinIO client provided — attempting auto-initialization via get_s3_client()")
-        try:
-            minio_client = get_s3_client()
-            logger.info("MinIO client successfully initialized via get_s3_client()")
-        except Exception as e:
-            error_msg = (
-                "MinIO client is required for ingestion but could not be initialized. "
-                "Call get_s3_client() and pass it explicitly into ingest(...)."
-            )
+        # ----------------------------------------------------------------------
+        # MinIO Client Initialization
+        # ----------------------------------------------------------------------
+        if minio_client is None:
+            logger.info("No MinIO client provided — attempting auto-initialization via get_s3_client()")
+            try:
+                minio_client = get_s3_client()
+                logger.info("MinIO client successfully initialized via get_s3_client()")
+            except Exception as e:
+                error_msg = (
+                    "MinIO client is required for ingestion but could not be initialized. "
+                    "Call get_s3_client() and pass it explicitly into ingest(...)."
+                )
+                return log_error(
+                    logger=logger,
+                    error_msg=error_msg,
+                    phase="minio_initialization",
+                    started_at=started_at,
+                    exc=e,
+                )
+
+        # Defensive check in case get_s3_client() returned None without raising
+        if minio_client is None:
+            error_msg = "MinIO client is required for ingestion but was not provided or initialized."
             return log_error(
                 logger=logger,
                 error_msg=error_msg,
                 phase="minio_initialization",
                 started_at=started_at,
+                exc=None,
+            )
+
+        # --- Config Loader ---
+        try:
+            loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
+        except Exception as e:
+            error_msg = f"Failed to load or validate configuration: {e}"
+            logger.info("Ingestion terminated during config validation")
+            return log_error(
+                logger=logger,
+                error_msg=error_msg,
+                phase="config_validation",
+                started_at=started_at,
                 exc=e,
             )
 
-    # Defensive check in case get_s3_client() returned None without raising
-    if minio_client is None:
-        error_msg = "MinIO client is required for ingestion but was not provided or initialized."
-        return log_error(
-            logger=logger,
-            error_msg=error_msg,
-            phase="minio_initialization",
-            started_at=started_at,
-            exc=None,
-        )
+        # --- Init run context (tenant, defaults, tables, DB) ---
+        ctx = init_run_context(spark, logger, loader)
 
-    # --- Config Loader ---
-    try:
-        loader = ConfigLoader(config, logger=logger, minio_client=minio_client)
-    except Exception as e:
-        error_msg = f"Failed to load or validate configuration: {e}"
-        logger.info("Ingestion terminated during config validation")
-        return log_error(
-            logger=logger,
-            error_msg=error_msg,
-            phase="config_validation",
-            started_at=started_at,
-            exc=e,
-        )
+        # ----------------------------------------------------------------------
+        # Validate DataFrame overrides (if provided)
+        # ----------------------------------------------------------------------
+        """
+        Validate optional DataFrame overrides.
 
-    # --- Init run context (tenant, defaults, tables, DB) ---
-    ctx = init_run_context(spark, logger, loader)
-
-    # ----------------------------------------------------------------------
-    # Validate DataFrame overrides (if provided)
-    # ----------------------------------------------------------------------
-    """
-    Validate optional DataFrame overrides.
-
-    Ensures `dataframes` is a dict[str, DataFrame] and that all provided
-    table keys exist in the ingestion configuration before processing begins.
-    """
-    if dataframes is not None:
-        if not isinstance(dataframes, dict):
-            return log_error(
-                logger=logger,
-                error_msg=(
-                    "Invalid 'dataframes' argument. "
-                    "Expected dict[str, pyspark.sql.DataFrame], "
-                    f"got {type(dataframes).__name__}."
-                ),
-                phase="dataframe_validation",
-                started_at=started_at,
-            )
-
-        # Validate keys and values (accumulate errors)
-        df_errors: list[str] = []
-
-        for key, value in dataframes.items():
-            if not isinstance(key, str):
-                df_errors.append(
-                    f"Invalid key in 'dataframes': expected str table name, got {type(key).__name__} ({key!r})."
-                )
-                # If key isn't str, avoid using it in other messages safely
-                continue
-
-            if not isinstance(value, DataFrame):
-                df_errors.append(
-                    f"Invalid value for table '{key}' in 'dataframes': expected pyspark.sql.DataFrame, got {type(value).__name__}."
+        Ensures `dataframes` is a dict[str, DataFrame] and that all provided
+        table keys exist in the ingestion configuration before processing begins.
+        """
+        if dataframes is not None:
+            if not isinstance(dataframes, dict):
+                return log_error(
+                    logger=logger,
+                    error_msg=(
+                        "Invalid 'dataframes' argument. "
+                        "Expected dict[str, pyspark.sql.DataFrame], "
+                        f"got {type(dataframes).__name__}."
+                    ),
+                    phase="dataframe_validation",
+                    started_at=started_at,
                 )
 
-        if df_errors:
-            return log_error(
-                logger=logger,
-                error_msg="DataFrame override validation failed:\n- " + "\n- ".join(df_errors),
-                phase="dataframe_validation",
-                started_at=started_at,
-            )
+            # Validate keys and values (accumulate errors)
+            df_errors: list[str] = []
 
-        # validate that provided table names exist in config
-        config_table_names = {t["name"] for t in ctx["tables"]}
-        invalid_keys = {k for k in dataframes.keys() if isinstance(k, str)} - config_table_names
+            for key, value in dataframes.items():
+                if not isinstance(key, str):
+                    df_errors.append(
+                        f"Invalid key in 'dataframes': expected str table name, got {type(key).__name__} ({key!r})."
+                    )
+                    # If key isn't str, avoid using it in other messages safely
+                    continue
 
-        if invalid_keys:
-            return log_error(
-                logger=logger,
-                error_msg=(
-                    "DataFrame override provided for unknown table(s): "
-                    f"{sorted(invalid_keys)}. "
-                    f"Valid tables: {sorted(config_table_names)}."
-                ),
-                phase="dataframe_validation",
-                started_at=started_at,
-            )
+                if not isinstance(value, DataFrame):
+                    df_errors.append(
+                        f"Invalid value for table '{key}' in 'dataframes': expected pyspark.sql.DataFrame, got {type(value).__name__}."
+                    )
 
-    # --- Table-level processing ---
-    table_reports, error_list = process_tables(
-        spark=spark,
-        logger=logger,
-        loader=loader,
-        ctx=ctx,
-        started_at=started_at,
-        minio_client=minio_client,
-        dataframes=dataframes,
-    )
+            if df_errors:
+                return log_error(
+                    logger=logger,
+                    error_msg="DataFrame override validation failed:\n- " + "\n- ".join(df_errors),
+                    phase="dataframe_validation",
+                    started_at=started_at,
+                )
 
-    # --- Final report ---
-    report = generate_report(
-        success=all(t.get("status") == ProcessStatus.SUCCESS for t in table_reports),
-        started_at=started_at,
-        tables=table_reports,
-        errors=error_list,
-    )
+            # validate that provided table names exist in config
+            config_table_names = {t["name"] for t in ctx["tables"]}
+            invalid_keys = {k for k in dataframes.keys() if isinstance(k, str)} - config_table_names
 
-    logger.info("Ingestion complete")
-    safe_log_json(logger, report)
-    return report
+            if invalid_keys:
+                return log_error(
+                    logger=logger,
+                    error_msg=(
+                        "DataFrame override provided for unknown table(s): "
+                        f"{sorted(invalid_keys)}. "
+                        f"Valid tables: {sorted(config_table_names)}."
+                    ),
+                    phase="dataframe_validation",
+                    started_at=started_at,
+                )
+
+        # --- Table-level processing ---
+        table_reports, error_list = process_tables(
+            spark=spark,
+            logger=logger,
+            loader=loader,
+            ctx=ctx,
+            started_at=started_at,
+            minio_client=minio_client,
+            dataframes=dataframes,
+        )
+
+        # --- Final report ---
+        report = generate_report(
+            success=all(t.get("status") == ProcessStatus.SUCCESS for t in table_reports),
+            started_at=started_at,
+            tables=table_reports,
+            errors=error_list,
+        )
+
+        logger.info("Ingestion complete")
+        safe_log_json(logger, report)
+        return report
+    
+    finally:
+
+        # ------------------------------------------------------------------
+        # Upload telemetry log to MinIO
+        # ------------------------------------------------------------------
+        try:
+            finalize_logger(logger)
+
+        except Exception:
+            logger.exception("Failed to finalize ingest telemetry logger")
 
 
 def log_error(

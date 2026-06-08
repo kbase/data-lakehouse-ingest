@@ -4,6 +4,7 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
     detect_format,
     load_table_data,
     write_table,
+    table_exists,
 )
 
 
@@ -20,15 +21,18 @@ from data_lakehouse_ingest.orchestrator.io_utils import (
     ],
 )
 def test_detect_format_by_extension(filename, format_hint, expected):
+    """Verify detect_format() infers file formats from file extensions."""
     assert detect_format(filename, format_hint) == expected
 
 
 def test_detect_format_explicit_override_lowercases():
+    """Verify explicit format overrides are normalized to lowercase."""
     assert detect_format("file.csv", "JSON") == "json"
 
 
 @patch("data_lakehouse_ingest.orchestrator.io_utils.load_json_data")
 def test_load_table_data_uses_correct_loader(mock_loader):
+    """Verify load_table_data() dispatches to the correct loader and returns row counts."""
     mock_df = MagicMock()
     mock_df.count.return_value = 10
     mock_loader.return_value = mock_df
@@ -50,6 +54,7 @@ def test_load_table_data_uses_correct_loader(mock_loader):
 
 
 def test_load_table_data_raises_for_unsupported_format():
+    """Verify load_table_data() raises an error for unsupported file formats."""
     mock_logger = MagicMock()
     mock_spark = MagicMock()
 
@@ -64,6 +69,7 @@ def test_load_table_data_raises_for_unsupported_format():
 
 
 def test_write_table_creates_or_replaces_table_overwrite():
+    """Verify overwrite mode creates or replaces the target table."""
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
@@ -91,6 +97,7 @@ def test_write_table_creates_or_replaces_table_overwrite():
 
 
 def test_write_table_partitioned_append_existing_table():
+    """Verify append mode writes to an existing partitioned table."""
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
@@ -120,6 +127,7 @@ def test_write_table_partitioned_append_existing_table():
 
 
 def test_write_table_append_missing_table_raises():
+    """Verify append mode raises an error when the target table does not exist."""
     mock_logger = MagicMock()
     mock_df = MagicMock()
     mock_spark = MagicMock()
@@ -142,6 +150,7 @@ def test_write_table_append_missing_table_raises():
 
 
 def test_write_table_invalid_mode_raises():
+    """Verify write_table() rejects unsupported write modes."""
     with pytest.raises(ValueError, match="Unsupported write mode 'merge'"):
         write_table(
             df=MagicMock(),
@@ -153,3 +162,49 @@ def test_write_table_invalid_mode_raises():
             rows_in=10,
             logger=MagicMock(),
         )
+
+
+def test_table_exists_returns_true_when_table_can_be_read():
+    """Verify table_exists() returns True when the table is accessible."""
+    mock_spark = MagicMock()
+
+    assert table_exists(mock_spark, "my.dataset.events") is True
+
+    mock_spark.table.assert_called_once_with("my.dataset.events")
+    mock_spark.table.return_value.limit.assert_called_once_with(1)
+    mock_spark.table.return_value.limit.return_value.count.assert_called_once_with()
+
+
+def test_table_exists_returns_false_when_table_read_fails():
+    """Verify table_exists() returns False when the table cannot be accessed."""
+    mock_spark = MagicMock()
+    mock_spark.table.side_effect = Exception("table does not exist")
+
+    assert table_exists(mock_spark, "my.dataset.events") is False
+
+
+def test_write_table_partitioned_by_string():
+    """Verify string partition columns are applied correctly during table writes."""
+    mock_logger = MagicMock()
+    mock_df = MagicMock()
+    mock_spark = MagicMock()
+
+    mock_spark.table.return_value.limit.return_value.count.return_value = 1
+
+    mock_writer = MagicMock()
+    mock_df.writeTo.return_value = mock_writer
+    mock_writer.partitionedBy.return_value = mock_writer
+
+    write_table(
+        df=mock_df,
+        spark=mock_spark,
+        namespace="my.dataset",
+        name="events",
+        partition_by="load_date",
+        mode="overwrite",
+        rows_in=50,
+        logger=mock_logger,
+    )
+
+    mock_writer.partitionedBy.assert_called_once_with("load_date")
+    mock_writer.createOrReplace.assert_called_once_with()

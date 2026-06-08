@@ -53,12 +53,20 @@ class PipelineContextFilter(logging.Filter):
         pipeline_run_id (str):
             Unique identifier for the ingestion run.
     """
+
     NON_TABLE_CONTEXTS = {
         "pending_config_load",
         "pipeline_stage",
     }
 
-    def __init__(self, pipeline_name: str, schema: str, pipeline_run_id: str, user: str | None = None, tenant: str | None = None):
+    def __init__(
+        self,
+        pipeline_name: str,
+        schema: str,
+        pipeline_run_id: str,
+        user: str | None = None,
+        tenant: str | None = None,
+    ):
         super().__init__()
         self.pipeline_name = pipeline_name
         self.schema = schema
@@ -150,6 +158,7 @@ class JsonLineFormatter(logging.Formatter):
     - WARNING for WARNING
     - FAILED for ERROR, CRITICAL, and exception events
     """
+
     def format(self, record):
         """
         Convert a log record into a structured JSON document.
@@ -211,6 +220,7 @@ class NotebookFormatter(logging.Formatter):
     to provide a detailed end-of-run summary while keeping routine
     events compact.
     """
+
     def format(self, record):
         """
         Convert a log record into a human-readable notebook message.
@@ -236,21 +246,13 @@ class NotebookFormatter(logging.Formatter):
                 ensure_ascii=False,
             )
 
-            return (
-                f"{event_time} | {record.levelname} | {message}\n"
-                f"{pretty_summary}"
-            )
-        
+            return f"{event_time} | {record.levelname} | {message}\n{pretty_summary}"
+
         if target_table and target_table not in {
             "pending_config_load",
             "pipeline_stage",
         }:
-            return (
-                f"{event_time} | "
-                f"{record.levelname} | "
-                f"{target_table} | "
-                f"{record.getMessage()}"
-            )
+            return f"{event_time} | {record.levelname} | {target_table} | {record.getMessage()}"
 
         return f"{event_time} | {record.levelname} | {record.getMessage()}"
 
@@ -464,7 +466,9 @@ def upload_log_file_to_minio(
     secret_key = os.getenv("S3_SECRET_KEY")
 
     if not endpoint_url or not access_key or not secret_key:
-        logger.warning("MinIO upload skipped because S3_ENDPOINT_URL, S3_ACCESS_KEY, or S3_SECRET_KEY is missing")
+        logger.warning(
+            "MinIO upload skipped because S3_ENDPOINT_URL, S3_ACCESS_KEY, or S3_SECRET_KEY is missing"
+        )
         return False
 
     try:

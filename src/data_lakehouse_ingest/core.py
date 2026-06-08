@@ -102,7 +102,9 @@ def ingest(
         # MinIO Client Initialization
         # ----------------------------------------------------------------------
         if minio_client is None:
-            logger.info("No MinIO client provided — attempting auto-initialization via get_s3_client()")
+            logger.info(
+                "No MinIO client provided — attempting auto-initialization via get_s3_client()"
+            )
             try:
                 minio_client = get_s3_client()
                 logger.info("MinIO client successfully initialized via get_s3_client()")
@@ -121,7 +123,9 @@ def ingest(
 
         # Defensive check in case get_s3_client() returned None without raising
         if minio_client is None:
-            error_msg = "MinIO client is required for ingestion but was not provided or initialized."
+            error_msg = (
+                "MinIO client is required for ingestion but was not provided or initialized."
+            )
             return log_error(
                 logger=logger,
                 error_msg=error_msg,
@@ -231,9 +235,8 @@ def ingest(
         logger.info("Ingestion complete")
         safe_log_json(logger, report)
         return report
-    
-    finally:
 
+    finally:
         # ------------------------------------------------------------------
         # Upload telemetry log to MinIO
         # ------------------------------------------------------------------

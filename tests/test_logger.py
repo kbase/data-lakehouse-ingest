@@ -13,6 +13,7 @@ def reload_logger_module():
 
 
 def test_setup_logger_creates_file_and_logs_context(tmp_path):
+    """Verify setup_logger() creates a log file and writes contextual telemetry fields."""
     logger = logger_module.setup_logger(
         log_dir=str(tmp_path),
         logger_name="test_logger",
@@ -46,6 +47,7 @@ def test_setup_logger_creates_file_and_logs_context(tmp_path):
 
 
 def test_logger_returns_same_instance(tmp_path):
+    """Verify setup_logger() returns the existing singleton logger instance."""
     logger1 = logger_module.setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
     logger2 = logger_module.setup_logger(log_dir=str(tmp_path), logger_name="same_logger")
 
@@ -54,6 +56,7 @@ def test_logger_returns_same_instance(tmp_path):
 
 
 def test_pipeline_context_filter_injects_fields():
+    """Verify PipelineContextFilter injects pipeline context and table metadata into log records."""
     record = logging.LogRecord(
         name="test",
         level=logging.INFO,
@@ -88,6 +91,7 @@ def test_pipeline_context_filter_injects_fields():
 
 
 def test_setup_logger_uses_pipeline_run_id_from_env(tmp_path, monkeypatch):
+    """Verify setup_logger() uses PIPELINE_RUN_ID from the environment when provided."""
     monkeypatch.setenv("PIPELINE_RUN_ID", "env-run-123")
 
     logger = logger_module.setup_logger(
@@ -107,6 +111,7 @@ def test_setup_logger_uses_pipeline_run_id_from_env(tmp_path, monkeypatch):
 
 
 def test_pipeline_context_filter_uses_tenant_as_catalog():
+    """Verify tenant names are used as the catalog when building fully qualified target tables."""
     record = logging.LogRecord(
         name="test",
         level=logging.INFO,
@@ -140,6 +145,7 @@ def test_pipeline_context_filter_uses_tenant_as_catalog():
     ],
 )
 def test_json_formatter_sets_status(level, expected_status):
+    """Verify JsonLineFormatter maps log severity levels to the expected status values."""
     record = logging.LogRecord(
         name="test",
         level=level,
@@ -164,6 +170,7 @@ def test_json_formatter_sets_status(level, expected_status):
 
 
 def test_safe_log_json_writes_summary_event(tmp_path):
+    """Verify safe_log_json() emits a structured pipeline summary telemetry event."""
     logger = logger_module.setup_logger(
         log_dir=str(tmp_path),
         logger_name="summary_logger",

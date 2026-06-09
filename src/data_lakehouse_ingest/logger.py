@@ -597,9 +597,18 @@ def finalize_logger(logger: logging.Logger) -> None:
     try:
         log_file_path = Path(logger.log_file_path)
 
-        upload_log_file_to_victorialogs(
+        compressed_file_path = compress_log_file(log_file_path)
+
+        object_key = build_ingest_telemetry_key(
+            compressed_file_path=compressed_file_path,
+            user=logger.context_filter.user,
+            pipeline_name=logger.context_filter.pipeline_name,
+        )
+
+        upload_log_file_to_minio(
             logger=logger,
-            log_file_path=log_file_path,
+            compressed_file_path=compressed_file_path,
+            object_key=object_key,
         )
 
     except Exception:

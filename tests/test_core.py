@@ -41,6 +41,12 @@ def mock_logger():
     return MagicMock()
 
 
+@pytest.fixture(autouse=True)
+def mock_finalize_logger():
+    with patch("data_lakehouse_ingest.core.finalize_logger") as mock_finalize:
+        yield mock_finalize
+
+
 # ---------------------------------------------------------------------
 # data_lakehouse_ingest_config tests
 # ---------------------------------------------------------------------
@@ -320,3 +326,31 @@ def test_ingest_dataframes_valid_overrides_passed_to_process_tables(
     mock_process_tables.assert_called_once()
     # Verify the overrides dict is passed through unchanged
     assert mock_process_tables.call_args.kwargs["dataframes"] is overrides
+
+
+# Test that ingest() invokes finalize_logger() in the finally block  after successful processing
+# so that structured telemetry logs are flushed and uploaded regardless of pipeline outcome.
+@patch("data_lakehouse_ingest.core.init_run_context")
+@patch("data_lakehouse_ingest.core.process_tables")
+@patch("data_lakehouse_ingest.core.ConfigLoader")
+@patch("data_lakehouse_ingest.core.get_s3_client")
+def test_ingest_finalizes_logger(
+    mock_get_minio,
+    mock_configloader,
+    mock_process_tables,
+    mock_init_ctx,
+    mock_spark,
+    mock_logger,
+    mock_finalize_logger,
+):
+    mock_get_minio.return_value = MagicMock()
+    mock_configloader.return_value = MagicMock()
+    mock_init_ctx.return_value = {"tables": [{"name": "table1"}]}
+    mock_process_tables.return_value = (
+        [{"name": "table1", "status": ProcessStatus.SUCCESS}],
+        [],
+    )
+
+    ingest(config={}, spark=mock_spark, logger=mock_logger, minio_client=None)
+
+    mock_finalize_logger.assert_called_once_with(mock_logger)

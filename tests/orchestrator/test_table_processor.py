@@ -1224,6 +1224,7 @@ def test_process_table_applies_table_level_string_comment(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level string comments are applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",
@@ -1303,6 +1304,7 @@ def test_process_table_applies_table_level_dict_comment(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level dictionary comments are applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",
@@ -1393,6 +1395,7 @@ def test_process_table_applies_table_and_column_comments(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level and column-level comments are both applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",

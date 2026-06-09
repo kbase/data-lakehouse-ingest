@@ -721,3 +721,15 @@ def test_get_table_comment_returns_none_for_missing_table(minimal_config, caplog
 
     assert comment is None
     assert "Requested table 'does_not_exist' not found in configuration." in caplog.text
+
+
+def test_get_pipeline_name_returns_explicit_or_default_value(minimal_config):
+    """Returns explicit pipeline_name when provided, otherwise builds the default pipeline name."""
+    cfg = minimal_config.copy()
+
+    loader = ConfigLoader(cfg)
+    assert loader.get_pipeline_name() == "genomedepot_arkinlab_ingest"
+
+    cfg["pipeline_name"] = "custom_pipeline"
+    loader = ConfigLoader(cfg)
+    assert loader.get_pipeline_name() == "custom_pipeline"

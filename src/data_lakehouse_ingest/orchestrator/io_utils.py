@@ -146,20 +146,24 @@ def write_table(
     mode = (mode or "overwrite").lower()
 
     if mode not in {"overwrite", "append"}:
-        raise ValueError(
+        error_msg = (
             f"Unsupported write mode '{mode}' for {full_table}. "
             "Supported modes are 'overwrite' and 'append'."
         )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     exists = table_exists(spark, full_table)
 
     logger.info(f"Writing table: {full_table} (mode={mode}, exists={exists})")
 
     if mode == "append" and not exists:
-        raise ValueError(
+        error_msg = (
             f"Cannot append to {full_table} because the table does not exist. "
             "Use mode='overwrite' or omit mode to create the table."
         )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     rows_written = rows_in
 

@@ -561,6 +561,57 @@ def upload_log_file_to_victorialogs(
         return False
 
 
+def upload_log_file_to_telemetry_uploader(
+    logger: logging.Logger,
+    compressed_file_path: str | Path,
+    object_key: str,
+) -> bool:
+    """
+    Upload a compressed telemetry log file through the telemetry uploader service.
+    """
+    upload_url = os.getenv("INGEST_TELEMETRY_UPLOAD_URL")
+    telemetry_token = os.getenv("TELEMETRY_TOKEN")
+
+    if not upload_url:
+        logger.warning(
+            "Telemetry upload skipped because INGEST_TELEMETRY_UPLOAD_URL is missing"
+        )
+        return False
+
+    try:
+        with open(compressed_file_path, "rb") as f:
+            response = requests.post(
+                upload_url,
+                headers={
+                    "X-Telemetry-Token": telemetry_token,
+                },
+                data={
+                    "object_key": object_key,
+                },
+                files={
+                    "file": (
+                        Path(compressed_file_path).name,
+                        f,
+                        "application/zstd",
+                    )
+                },
+                timeout=60,
+            )
+
+        response.raise_for_status()
+
+        logger.info(
+            f"Uploaded ingest telemetry log via telemetry uploader: {object_key}"
+        )
+        return True
+
+    except Exception:
+        logger.exception(
+            "Failed to upload ingest telemetry log via telemetry uploader"
+        )
+        return False
+
+
 def finalize_logger(logger: logging.Logger) -> None:
     """
     Finalize ingestion telemetry and upload logs to VictoriaLogs.
@@ -605,7 +656,7 @@ def finalize_logger(logger: logging.Logger) -> None:
             pipeline_name=logger.context_filter.pipeline_name,
         )
 
-        upload_log_file_to_minio(
+        upload_log_file_to_telemetry_uploader(
             logger=logger,
             compressed_file_path=compressed_file_path,
             object_key=object_key,

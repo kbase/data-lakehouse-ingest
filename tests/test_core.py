@@ -384,6 +384,4 @@ def test_ingest_logs_exception_when_finalize_logger_fails(
 
     assert result["success"] is True
     mock_finalize_logger.assert_called_once_with(mock_logger)
-    mock_logger.exception.assert_called_once_with(
-        "Failed to finalize ingest telemetry logger"
-    )
+    mock_logger.exception.assert_called_once_with("Failed to finalize ingest telemetry logger")

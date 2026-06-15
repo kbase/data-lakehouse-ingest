@@ -733,3 +733,60 @@ def test_get_pipeline_name_returns_explicit_or_default_value(minimal_config):
     cfg["pipeline_name"] = "custom_pipeline"
     loader = ConfigLoader(cfg)
     assert loader.get_pipeline_name() == "custom_pipeline"
+
+
+def test_load_from_local_file_permission_denied(monkeypatch, minimal_config, caplog):
+    """Raises PermissionError when local config file cannot be read."""
+    safe_file = Path.home() / ".data_lakehouse" / "configs" / "permission_denied.json"
+    safe_file.parent.mkdir(parents=True, exist_ok=True)
+    safe_file.write_text(json.dumps(minimal_config), encoding="utf-8")
+
+    def fake_open(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("builtins.open", fake_open)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(PermissionError):
+        ConfigLoader(str(safe_file))
+
+    assert "Permission denied while reading config" in caplog.text
+
+
+def test_load_from_local_file_unexpected_error(monkeypatch, minimal_config, caplog):
+    """Raises unexpected local file read errors after logging them."""
+    safe_file = Path.home() / ".data_lakehouse" / "configs" / "unexpected_error.json"
+    safe_file.parent.mkdir(parents=True, exist_ok=True)
+    safe_file.write_text(json.dumps(minimal_config), encoding="utf-8")
+
+    def fake_open(*args, **kwargs):
+        raise RuntimeError("unexpected file error")
+
+    monkeypatch.setattr("builtins.open", fake_open)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="unexpected file error"):
+        ConfigLoader(str(safe_file))
+
+    assert "Unexpected error reading" in caplog.text
+
+
+def test_get_csv_defaults_returns_safe_fallback_when_defaults_missing(minimal_config):
+    """Returns built-in CSV defaults when defaults.csv is not configured."""
+    cfg = minimal_config.copy()
+    cfg.pop("defaults", None)
+
+    loader = ConfigLoader(cfg)
+
+    assert loader.get_csv_defaults() == {
+        "header": False,
+        "delimiter": ",",
+        "inferSchema": False,
+    }
+
+
+def test_get_table_comment_returns_none_for_invalid_comment_after_validation(minimal_config):
+    """Returns None when an already-loaded table comment has an invalid type."""
+    loader = ConfigLoader(minimal_config)
+
+    loader.config["tables"][0]["comment"] = 123
+
+    assert loader.get_table_comment("browser_cazy_family") is None

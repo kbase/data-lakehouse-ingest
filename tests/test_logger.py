@@ -486,3 +486,116 @@ def test_setup_logger_removes_existing_handlers(tmp_path):
 
     assert existing_handler not in logger.handlers
     assert len(logger.handlers) == 2
+
+
+def test_upload_log_file_to_minio_success(tmp_path, monkeypatch, caplog):
+    """Verify upload_log_file_to_minio() returns True after successful S3 upload."""
+    compressed_file = tmp_path / "test.zstd"
+    compressed_file.write_bytes(b"test")
+
+    monkeypatch.setenv("INGEST_TELEMETRY_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+    monkeypatch.setenv("S3_ACCESS_KEY", "test-access")
+    monkeypatch.setenv("S3_SECRET_KEY", "test-secret")
+
+    class FakeS3Client:
+        def upload_file(self, Filename, Bucket, Key):
+            assert Filename == str(compressed_file)
+            assert Bucket == "test-bucket"
+            assert Key == "ingest-job-logs/test.zstd"
+
+    monkeypatch.setattr(
+        logger_module.boto3,
+        "client",
+        lambda *args, **kwargs: FakeS3Client(),
+    )
+
+    logger = logging.getLogger("test_minio_success")
+    caplog.set_level(logging.INFO)
+
+    result = logger_module.upload_log_file_to_minio(
+        logger=logger,
+        compressed_file_path=compressed_file,
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is True
+    assert (
+        "Uploaded ingest telemetry log to s3://test-bucket/ingest-job-logs/test.zstd" in caplog.text
+    )
+
+
+def test_upload_log_file_to_telemetry_uploader_success(tmp_path, monkeypatch, caplog):
+    """Verify telemetry uploader upload returns True when HTTP upload succeeds."""
+    compressed_file = tmp_path / "test.zstd"
+    compressed_file.write_bytes(b"test")
+
+    monkeypatch.setenv("INGEST_TELEMETRY_UPLOAD_URL", "http://telemetry-uploader:8080/upload")
+    monkeypatch.setenv("TELEMETRY_TOKEN", "test-token")
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    def fake_post(url, headers, data, files, timeout):
+        assert url == "http://telemetry-uploader:8080/upload"
+        assert headers["X-Telemetry-Token"] == "test-token"
+        assert data["object_key"] == "ingest-job-logs/test.zstd"
+        assert timeout == 60
+        return FakeResponse()
+
+    monkeypatch.setattr(logger_module.requests, "post", fake_post)
+
+    logger = logging.getLogger("test_uploader_success")
+    caplog.set_level(logging.INFO)
+
+    result = logger_module.upload_log_file_to_telemetry_uploader(
+        logger=logger,
+        compressed_file_path=compressed_file,
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is True
+    assert "Uploaded ingest telemetry log via telemetry uploader" in caplog.text
+
+
+def test_finalize_logger_logs_when_telemetry_disabled(tmp_path, monkeypatch):
+    """Verify finalize_logger() logs and returns when telemetry is disabled."""
+    monkeypatch.setenv("INGEST_TELEMETRY_ENABLED", "false")
+
+    logger = logger_module.setup_logger(
+        log_dir=str(tmp_path),
+        logger_name="finalize_disabled_logger",
+    )
+
+    logger_module.finalize_logger(logger)
+
+    for handler in logger.handlers:
+        handler.flush()
+
+    with open(logger.log_file_path, "r") as f:
+        logs = [json.loads(line) for line in f if line.strip()]
+
+    assert logs[-1]["message"] == "Ingest telemetry upload is disabled"
+
+
+def test_safe_log_json_falls_back_to_string_when_summary_logging_fails(caplog):
+    """Verify safe_log_json() logs string data when structured summary logging fails."""
+
+    class FakeLogger:
+        def __init__(self):
+            self.calls = 0
+
+        def info(self, message, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("structured logging failed")
+            logging.getLogger("safe_log_fallback").info(message)
+
+    caplog.set_level(logging.INFO)
+
+    data = {"success": False, "errors": ["bad record"]}
+
+    logger_module.safe_log_json(FakeLogger(), data)
+
+    assert str(data) in caplog.text

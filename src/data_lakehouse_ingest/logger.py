@@ -656,11 +656,14 @@ def finalize_logger(logger: logging.Logger) -> None:
             pipeline_name=logger.context_filter.pipeline_name,
         )
 
-        upload_log_file_to_telemetry_uploader(
-            logger=logger,
-            compressed_file_path=compressed_file_path,
-            object_key=object_key,
-        )
+        # Temporarily disable telemetry uploads while
+        # telemetry-uploader integration is being finalized.
+        #
+        # upload_log_file_to_telemetry_uploader(
+        #     logger=logger,
+        #     compressed_file_path=compressed_file_path,
+        #     object_key=object_key,
+        # )
 
     except Exception:
         logger.exception("Failed during ingest telemetry finalization")

@@ -573,9 +573,7 @@ def upload_log_file_to_telemetry_uploader(
     telemetry_token = os.getenv("TELEMETRY_TOKEN")
 
     if not upload_url:
-        logger.warning(
-            "Telemetry upload skipped because INGEST_TELEMETRY_UPLOAD_URL is missing"
-        )
+        logger.warning("Telemetry upload skipped because INGEST_TELEMETRY_UPLOAD_URL is missing")
         return False
 
     try:
@@ -600,15 +598,11 @@ def upload_log_file_to_telemetry_uploader(
 
         response.raise_for_status()
 
-        logger.info(
-            f"Uploaded ingest telemetry log via telemetry uploader: {object_key}"
-        )
+        logger.info(f"Uploaded ingest telemetry log via telemetry uploader: {object_key}")
         return True
 
     except Exception:
-        logger.exception(
-            "Failed to upload ingest telemetry log via telemetry uploader"
-        )
+        logger.exception("Failed to upload ingest telemetry log via telemetry uploader")
         return False
 
 
@@ -646,19 +640,20 @@ def finalize_logger(logger: logging.Logger) -> None:
         return
 
     try:
-        log_file_path = Path(logger.log_file_path)
-
-        compressed_file_path = compress_log_file(log_file_path)
-
-        object_key = build_ingest_telemetry_key(
-            compressed_file_path=compressed_file_path,
-            user=logger.context_filter.user,
-            pipeline_name=logger.context_filter.pipeline_name,
-        )
-
         # Temporarily disable telemetry uploads while
         # telemetry-uploader integration is being finalized.
+        pass
         #
+        # log_file_path = Path(logger.log_file_path)
+
+        # compressed_file_path = compress_log_file(log_file_path)
+
+        # object_key = build_ingest_telemetry_key(
+        #     compressed_file_path=compressed_file_path,
+        #     user=logger.context_filter.user,
+        #     pipeline_name=logger.context_filter.pipeline_name,
+        # )
+
         # upload_log_file_to_telemetry_uploader(
         #     logger=logger,
         #     compressed_file_path=compressed_file_path,

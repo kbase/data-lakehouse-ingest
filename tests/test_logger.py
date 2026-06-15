@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 import pytest
 import importlib
 import data_lakehouse_ingest.logger as logger_module
@@ -198,3 +199,290 @@ def test_safe_log_json_writes_summary_event(tmp_path):
     assert log_entry["table"] == "pipeline_stage"
     assert log_entry["target_table"] == "pipeline_stage"
     assert log_entry["summary"] == summary
+
+
+def test_compress_log_file_creates_zstd_file(tmp_path):
+    """Verify compress_log_file() creates a compressed .zstd file."""
+    log_file = tmp_path / "test.jsonl"
+    log_file.write_text('{"message": "hello"}\n')
+
+    compressed_file = logger_module.compress_log_file(log_file)
+
+    assert compressed_file.exists()
+    assert compressed_file.name.endswith(".jsonl.zstd")
+    assert compressed_file.stat().st_size > 0
+
+
+def test_build_ingest_telemetry_key(monkeypatch, tmp_path):
+    """Verify build_ingest_telemetry_key() creates the expected partitioned object key."""
+    monkeypatch.setenv("INGEST_TELEMETRY_PREFIX", "ingest-job-logs")
+
+    compressed_file = tmp_path / "pipeline_run_20260615T120000Z.jsonl.zstd"
+
+    object_key = logger_module.build_ingest_telemetry_key(
+        compressed_file_path=compressed_file,
+        user="amkhan",
+        pipeline_name="test_pipeline",
+    )
+
+    assert object_key.startswith("ingest-job-logs/amkhan/date=")
+    assert object_key.endswith("test_pipeline/pipeline_run_20260615T120000Z.jsonl.zstd")
+
+
+def test_upload_log_file_to_minio_skips_when_env_missing(tmp_path, caplog, monkeypatch):
+    """Verify upload_log_file_to_minio() skips upload when required S3 env vars are missing."""
+    monkeypatch.delenv("S3_ENDPOINT_URL", raising=False)
+    monkeypatch.delenv("S3_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("S3_SECRET_KEY", raising=False)
+
+    logger = logging.getLogger("test_minio_skip")
+    caplog.set_level(logging.WARNING)
+
+    result = logger_module.upload_log_file_to_minio(
+        logger=logger,
+        compressed_file_path=tmp_path / "missing.zstd",
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is False
+    assert "MinIO upload skipped" in caplog.text
+
+
+def test_upload_log_file_to_telemetry_uploader_skips_when_url_missing(
+    tmp_path, caplog, monkeypatch
+):
+    """Verify telemetry uploader upload is skipped when INGEST_TELEMETRY_UPLOAD_URL is missing."""
+    monkeypatch.delenv("INGEST_TELEMETRY_UPLOAD_URL", raising=False)
+
+    logger = logging.getLogger("test_uploader_skip")
+    caplog.set_level(logging.WARNING)
+
+    result = logger_module.upload_log_file_to_telemetry_uploader(
+        logger=logger,
+        compressed_file_path=tmp_path / "missing.zstd",
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is False
+    assert "INGEST_TELEMETRY_UPLOAD_URL is missing" in caplog.text
+
+
+def test_finalize_logger_flushes_handlers_when_upload_temporarily_disabled(tmp_path):
+    """Verify finalize_logger() flushes handlers without attempting telemetry upload."""
+    logger = logger_module.setup_logger(
+        log_dir=str(tmp_path),
+        logger_name="finalize_logger",
+    )
+
+    logger.info("before finalize")
+
+    logger_module.finalize_logger(logger)
+
+    assert os.path.exists(logger.log_file_path)
+
+
+def test_notebook_formatter_formats_summary_record():
+    """Verify NotebookFormatter renders summary events as pretty JSON."""
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=10,
+        msg="summary message",
+        args=(),
+        exc_info=None,
+    )
+
+    f = logger_module.PipelineContextFilter(
+        "pipelineA",
+        "schemaZ",
+        pipeline_run_id="run-123",
+    )
+    f.filter(record)
+    record.summary = {"success": True}
+
+    output = logger_module.NotebookFormatter().format(record)
+
+    assert "summary message" in output
+    assert '"success": true' in output
+
+
+def test_notebook_formatter_formats_table_context():
+    """Verify NotebookFormatter includes target table when table context is available."""
+    record = logging.LogRecord(
+        name="test",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=10,
+        msg="table message",
+        args=(),
+        exc_info=None,
+    )
+
+    f = logger_module.PipelineContextFilter(
+        "pipelineA",
+        "schemaZ",
+        pipeline_run_id="run-123",
+        tenant="berdl",
+    )
+    f.set_table("tableX")
+    f.filter(record)
+
+    output = logger_module.NotebookFormatter().format(record)
+
+    assert "berdl.schemaZ.tableX" in output
+    assert "table message" in output
+
+
+def test_upload_log_file_to_minio_logs_failure_when_upload_fails(tmp_path, caplog, monkeypatch):
+    """Verify upload_log_file_to_minio() logs and returns False when boto3 upload fails."""
+    compressed_file = tmp_path / "test.zstd"
+    compressed_file.write_bytes(b"test")
+
+    monkeypatch.setenv("INGEST_TELEMETRY_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_ENDPOINT_URL", "http://minio:9000")
+    monkeypatch.setenv("S3_ACCESS_KEY", "test-access")
+    monkeypatch.setenv("S3_SECRET_KEY", "test-secret")
+
+    class FakeS3Client:
+        def upload_file(self, Filename, Bucket, Key):
+            raise RuntimeError("upload failed")
+
+    monkeypatch.setattr(
+        logger_module.boto3,
+        "client",
+        lambda *args, **kwargs: FakeS3Client(),
+    )
+
+    logger = logging.getLogger("test_minio_failure")
+    caplog.set_level(logging.ERROR)
+
+    result = logger_module.upload_log_file_to_minio(
+        logger=logger,
+        compressed_file_path=compressed_file,
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is False
+    assert "Failed to upload ingest telemetry log to MinIO" in caplog.text
+
+
+def test_upload_log_file_to_telemetry_uploader_logs_failure(tmp_path, caplog, monkeypatch):
+    """Verify telemetry uploader upload returns False when HTTP upload fails."""
+    compressed_file = tmp_path / "test.zstd"
+    compressed_file.write_bytes(b"test")
+
+    monkeypatch.setenv("INGEST_TELEMETRY_UPLOAD_URL", "http://telemetry-uploader:8080/upload")
+    monkeypatch.setenv("TELEMETRY_TOKEN", "test-token")
+
+    def fake_post(*args, **kwargs):
+        raise RuntimeError("http failed")
+
+    monkeypatch.setattr(logger_module.requests, "post", fake_post)
+
+    logger = logging.getLogger("test_uploader_failure")
+    caplog.set_level(logging.ERROR)
+
+    result = logger_module.upload_log_file_to_telemetry_uploader(
+        logger=logger,
+        compressed_file_path=compressed_file,
+        object_key="ingest-job-logs/test.zstd",
+    )
+
+    assert result is False
+    assert "Failed to upload ingest telemetry log via telemetry uploader" in caplog.text
+
+
+def test_upload_log_file_to_victorialogs_success(tmp_path, monkeypatch, caplog):
+    """Verify VictoriaLogs upload returns True when the HTTP request succeeds."""
+
+    log_file = tmp_path / "test.jsonl"
+    log_file.write_text('{"message":"test"}\n')
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+    def fake_post(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr(logger_module.requests, "post", fake_post)
+
+    logger = logging.getLogger("victorialogs_success")
+
+    result = logger_module.upload_log_file_to_victorialogs(
+        logger=logger,
+        log_file_path=log_file,
+    )
+
+    assert result is True
+
+
+def test_upload_log_file_to_victorialogs_failure(tmp_path, monkeypatch, caplog):
+    """Verify VictoriaLogs upload returns False when the HTTP request fails."""
+
+    log_file = tmp_path / "test.jsonl"
+    log_file.write_text('{"message":"test"}\n')
+
+    def fake_post(*args, **kwargs):
+        raise RuntimeError("VictoriaLogs unavailable")
+
+    monkeypatch.setattr(logger_module.requests, "post", fake_post)
+
+    logger = logging.getLogger("victorialogs_failure")
+    caplog.set_level(logging.ERROR)
+
+    result = logger_module.upload_log_file_to_victorialogs(
+        logger=logger,
+        log_file_path=log_file,
+    )
+
+    assert result is False
+    assert "Failed to upload ingest telemetry log to VictoriaLogs" in caplog.text
+
+
+def test_json_formatter_includes_exception_fields():
+    """Verify JsonLineFormatter includes exception details when exc_info is present."""
+    try:
+        raise ValueError("bad value")
+    except ValueError:
+        exc_info = sys.exc_info()
+
+    record = logging.LogRecord(
+        name="test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=10,
+        msg="exception test",
+        args=(),
+        exc_info=exc_info,
+    )
+
+    f = logger_module.PipelineContextFilter(
+        "pipelineA",
+        "schemaZ",
+        pipeline_run_id="run-123",
+    )
+    f.filter(record)
+
+    payload = json.loads(logger_module.JsonLineFormatter().format(record))
+
+    assert payload["exception_type"] == "ValueError"
+    assert "ValueError: bad value" in payload["exception"]
+    assert payload["status"] == "FAILED"
+
+
+def test_setup_logger_removes_existing_handlers(tmp_path):
+    """Verify setup_logger() closes and removes pre-existing logger handlers."""
+    test_logger = logging.getLogger("handler_cleanup_logger")
+
+    existing_handler = logging.StreamHandler()
+    test_logger.addHandler(existing_handler)
+
+    logger = logger_module.setup_logger(
+        log_dir=str(tmp_path),
+        logger_name="handler_cleanup_logger",
+    )
+
+    assert existing_handler not in logger.handlers
+    assert len(logger.handlers) == 2

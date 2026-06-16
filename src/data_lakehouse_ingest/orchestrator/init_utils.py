@@ -48,8 +48,8 @@ def init_logger(logger: logging.Logger | None) -> logging.Logger:
 
     # Use structured logger
     return setup_logger(
-        pipeline_name="data_lakehouse_ingest",
-        schema="default",
+        pipeline_name="pending_config_load",
+        schema="pending_config_load",
         log_level="INFO",
     )
 
@@ -82,6 +82,13 @@ def init_run_context(
     tenant = loader.config.get("tenant")
     dataset = loader.config.get("dataset")
     tables = loader.get_tables()
+    pipeline_name = loader.get_pipeline_name()
+
+    if hasattr(logger, "context_filter"):
+        logger.context_filter.tenant = tenant or "personal"
+        logger.context_filter.schema = dataset
+        logger.context_filter.pipeline_name = pipeline_name
+        logger.context_filter.catalog = tenant if tenant else "my"
 
     if not dataset:
         raise ValueError("Config must include 'dataset' field.")

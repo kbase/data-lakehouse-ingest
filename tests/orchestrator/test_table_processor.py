@@ -1224,6 +1224,7 @@ def test_process_table_applies_table_level_string_comment(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level string comments are applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",
@@ -1303,6 +1304,7 @@ def test_process_table_applies_table_level_dict_comment(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level dictionary comments are applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",
@@ -1393,6 +1395,7 @@ def test_process_table_applies_table_and_column_comments(
     mock_logger,
     mock_loader,
 ):
+    """Verify table-level and column-level comments are both applied when configured."""
     ctx = {
         "tenant": "tenant_alpha",
         "namespace": "tenant_alpha.dataset",
@@ -1425,3 +1428,68 @@ def test_process_table_applies_table_and_column_comments(
 
     mock_apply_table_comment.assert_called_once()
     mock_apply_column_comments.assert_called_once()
+
+
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.resolve_schema",
+    autospec=True,
+    return_value=SimpleNamespace(
+        schema_defs="CREATE TABLE ...",
+        schema_source=SchemaSource.SCHEMA_SQL,
+        comment_metadata=None,
+    ),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.detect_format",
+    autospec=True,
+    return_value="csv",
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.load_table_data",
+    autospec=True,
+    return_value=(MagicMock(), 100),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.apply_schema_columns",
+    autospec=True,
+    side_effect=lambda *args, **kwargs: (kwargs["df"], {"dropped_columns": []}),
+)
+@patch(
+    "data_lakehouse_ingest.orchestrator.table_processor.write_table",
+    autospec=True,
+)
+def test_process_table_invalid_write_mode_raises_value_error(
+    mock_write_table,
+    mock_apply_schema,
+    mock_load_data,
+    mock_detect_format,
+    mock_resolve_schema,
+    mock_spark,
+    mock_logger,
+    mock_loader,
+):
+    """Verify invalid table write modes raise a clear ValueError."""
+    ctx = {
+        "tenant": "tenant_alpha",
+        "namespace": "tenant_alpha.dataset",
+    }
+
+    table = {
+        "name": "test_table",
+        "format": "csv",
+        "mode": "invalid_mode",
+    }
+
+    with pytest.raises(ValueError, match=r"Invalid write mode 'invalid_mode'"):
+        process_table(
+            spark=mock_spark,
+            logger=mock_logger,
+            loader=mock_loader,
+            ctx=ctx,
+            table=table,
+            run_started_at_iso="2025-10-31T12:00:00Z",
+        )
+
+    mock_logger.error.assert_called_once()
+    assert "Supported modes are" in mock_logger.error.call_args.args[0]
+    mock_write_table.assert_not_called()

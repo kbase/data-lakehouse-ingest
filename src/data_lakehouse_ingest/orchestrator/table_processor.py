@@ -221,10 +221,12 @@ def process_table(
     try:
         mode = WriteMode(raw_mode)
     except ValueError as e:
-        raise ValueError(
+        error_msg = (
             f"Invalid write mode '{raw_mode}' for table '{name}'. "
             f"Supported modes are: {[m.value for m in WriteMode]}"
-        ) from e
+        )
+        logger.error(error_msg, exc_info=True)
+        raise ValueError(error_msg) from e
 
     rows_written = write_table(
         df=df,

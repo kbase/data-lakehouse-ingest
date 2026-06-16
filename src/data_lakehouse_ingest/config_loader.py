@@ -325,6 +325,16 @@ class ConfigLoader:
     def get_dataset(self) -> str:
         return self.config.get("dataset", "")
 
+    def get_pipeline_name(self) -> str:
+        explicit_pipeline_name = self.config.get("pipeline_name")
+        if explicit_pipeline_name:
+            return explicit_pipeline_name
+
+        tenant = self.config.get("tenant") or "personal"
+        dataset = self.get_dataset() or "unknown_dataset"
+
+        return f"{tenant}_{dataset}_ingest"
+
     def is_tenant(self) -> bool:
         return bool(self.config.get("is_tenant", False))
 

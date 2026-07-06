@@ -9,7 +9,7 @@ on:
     types: [published]
 jobs:
   build-publish-scan:
-    uses: BERDataLakehouse/.github/.github/workflows/build_publish_scan.yaml@main
+    uses: KBaseDataLakehouse/.github/.github/workflows/build_publish_scan.yaml@main
     permissions:
       contents: read
       packages: write

@@ -640,25 +640,22 @@ def finalize_logger(logger: logging.Logger) -> None:
         return
 
     try:
-        # Temporarily disable telemetry uploads while
-        # telemetry-uploader integration is being finalized.
-        pass
-        #
-        # log_file_path = Path(logger.log_file_path)
+        # Compress and upload the completed telemetry log through the telemetry uploader service.
+        log_file_path = Path(logger.log_file_path)
 
-        # compressed_file_path = compress_log_file(log_file_path)
+        compressed_file_path = compress_log_file(log_file_path)
 
-        # object_key = build_ingest_telemetry_key(
-        #     compressed_file_path=compressed_file_path,
-        #     user=logger.context_filter.user,
-        #     pipeline_name=logger.context_filter.pipeline_name,
-        # )
+        object_key = build_ingest_telemetry_key(
+            compressed_file_path=compressed_file_path,
+            user=logger.context_filter.user,
+            pipeline_name=logger.context_filter.pipeline_name,
+        )
 
-        # upload_log_file_to_telemetry_uploader(
-        #     logger=logger,
-        #     compressed_file_path=compressed_file_path,
-        #     object_key=object_key,
-        # )
+        upload_log_file_to_telemetry_uploader(
+            logger=logger,
+            compressed_file_path=compressed_file_path,
+            object_key=object_key,
+        )
 
     except Exception:
         logger.exception("Failed during ingest telemetry finalization")

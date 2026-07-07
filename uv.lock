@@ -249,7 +249,7 @@ wheels = [
 [[package]]
 name = "berdl-notebook-utils"
 version = "0.0.1"
-source = { git = "https://github.com/BERDataLakehouse/spark_notebook.git?subdirectory=notebook_utils#9da77ba179c671b7a5e0d97ef8340c9d73911928" }
+source = { git = "https://github.com/KBaseDataLakehouse/spark_notebook.git?subdirectory=notebook_utils#d46f98a6f6f53c4dbfeb34e67e3b8b21d7d073b0" }
 dependencies = [
     { name = "attrs" },
     { name = "cacheout" },
@@ -625,7 +625,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "berdl-notebook-utils", git = "https://github.com/BERDataLakehouse/spark_notebook.git?subdirectory=notebook_utils" },
+    { name = "berdl-notebook-utils", git = "https://github.com/KBaseDataLakehouse/spark_notebook.git?subdirectory=notebook_utils" },
     { name = "boto3", specifier = ">=1.34.0" },
     { name = "linkml", specifier = ">=1.9.4" },
     { name = "linkml-runtime", specifier = ">=1.9.5" },
@@ -1807,7 +1807,7 @@ wheels = [
 [[package]]
 name = "minio-manager-service-client"
 version = "0.0.1"
-source = { git = "https://github.com/BERDataLakehouse/minio_manager_service_client.git?rev=v0.0.22#20fa3233d041a284bbd6b3cd0efd59d0c60adad9" }
+source = { git = "https://github.com/BERDataLakehouse/minio_manager_service_client.git?rev=v0.0.23#1a1ab502f6c7f86e38672cce571fc5b4ea7ed8b9" }
 dependencies = [
     { name = "attrs" },
     { name = "httpx" },

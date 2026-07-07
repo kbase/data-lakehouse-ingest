@@ -44,4 +44,4 @@ select = ["F", "E", "W"] # minimal: pyflakes + pycodestyle
 ignore = ["E501"]        # ignore line length, handled by line-length above
 
 [tool.uv.sources]
-berdl-notebook-utils = { git = "https://github.com/BERDataLakehouse/spark_notebook.git", subdirectory = "notebook_utils" }
+berdl-notebook-utils = { git = "https://github.com/KBaseDataLakehouse/spark_notebook.git", subdirectory = "notebook_utils" }

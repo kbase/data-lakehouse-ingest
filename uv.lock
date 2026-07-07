@@ -658,7 +658,7 @@ wheels = [
 [[package]]
 name = "datalake-mcp-server-client"
 version = "0.0.1"
-source = { git = "https://github.com/BERDataLakehouse/datalake-mcp-server-client.git?rev=v0.0.10#0b13bbdc0c4e62719a8650d30aed1d1578efe8dc" }
+source = { git = "https://github.com/KBaseDataLakehouse/datalake-mcp-server-client.git?rev=v0.0.10#0b13bbdc0c4e62719a8650d30aed1d1578efe8dc" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },

@@ -570,10 +570,13 @@ def upload_log_file_to_telemetry_uploader(
     Upload a compressed telemetry log file through the telemetry uploader service.
     """
     upload_url = os.getenv("INGEST_TELEMETRY_UPLOAD_URL")
-    telemetry_token = os.getenv("TELEMETRY_TOKEN")
+    kbase_auth_token = os.getenv("KBASE_AUTH_TOKEN")
 
-    if not upload_url:
-        logger.warning("Telemetry upload skipped because INGEST_TELEMETRY_UPLOAD_URL is missing")
+    if not upload_url or not kbase_auth_token:
+        logger.warning(
+            "Telemetry upload skipped because "
+            "INGEST_TELEMETRY_UPLOAD_URL or KBASE_AUTH_TOKEN is missing"
+        )
         return False
 
     try:
@@ -581,7 +584,7 @@ def upload_log_file_to_telemetry_uploader(
             response = requests.post(
                 upload_url,
                 headers={
-                    "X-Telemetry-Token": telemetry_token,
+                    "Authorization": f"Bearer {kbase_auth_token}",
                 },
                 data={
                     "object_key": object_key,

@@ -251,8 +251,9 @@ def test_upload_log_file_to_minio_skips_when_env_missing(tmp_path, caplog, monke
 def test_upload_log_file_to_telemetry_uploader_skips_when_url_missing(
     tmp_path, caplog, monkeypatch
 ):
-    """Verify telemetry uploader upload is skipped when INGEST_TELEMETRY_UPLOAD_URL is missing."""
+    """Verify upload is skipped when INGEST_TELEMETRY_UPLOAD_URL is missing."""
     monkeypatch.delenv("INGEST_TELEMETRY_UPLOAD_URL", raising=False)
+    monkeypatch.setenv("KBASE_AUTH_TOKEN", "test-token")
 
     logger = logging.getLogger("test_uploader_skip")
     caplog.set_level(logging.WARNING)
@@ -264,7 +265,7 @@ def test_upload_log_file_to_telemetry_uploader_skips_when_url_missing(
     )
 
     assert result is False
-    assert "INGEST_TELEMETRY_UPLOAD_URL is missing" in caplog.text
+    assert "INGEST_TELEMETRY_UPLOAD_URL or KBASE_AUTH_TOKEN is missing" in caplog.text
 
 
 def test_finalize_logger_flushes_handlers_when_upload_temporarily_disabled(tmp_path):
@@ -373,7 +374,7 @@ def test_upload_log_file_to_telemetry_uploader_logs_failure(tmp_path, caplog, mo
     compressed_file.write_bytes(b"test")
 
     monkeypatch.setenv("INGEST_TELEMETRY_UPLOAD_URL", "http://telemetry-uploader:8080/upload")
-    monkeypatch.setenv("TELEMETRY_TOKEN", "test-token")
+    monkeypatch.setenv("KBASE_AUTH_TOKEN", "test-token")
 
     def fake_post(*args, **kwargs):
         raise RuntimeError("http failed")
@@ -531,7 +532,7 @@ def test_upload_log_file_to_telemetry_uploader_success(tmp_path, monkeypatch, ca
     compressed_file.write_bytes(b"test")
 
     monkeypatch.setenv("INGEST_TELEMETRY_UPLOAD_URL", "http://telemetry-uploader:8080/upload")
-    monkeypatch.setenv("TELEMETRY_TOKEN", "test-token")
+    monkeypatch.setenv("KBASE_AUTH_TOKEN", "test-token")
 
     class FakeResponse:
         def raise_for_status(self):
@@ -539,7 +540,7 @@ def test_upload_log_file_to_telemetry_uploader_success(tmp_path, monkeypatch, ca
 
     def fake_post(url, headers, data, files, timeout):
         assert url == "http://telemetry-uploader:8080/upload"
-        assert headers["X-Telemetry-Token"] == "test-token"
+        assert headers["Authorization"] == "Bearer test-token"
         assert data["object_key"] == "ingest-job-logs/test.zstd"
         assert timeout == 60
         return FakeResponse()

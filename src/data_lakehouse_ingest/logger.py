@@ -460,7 +460,7 @@ def upload_log_file_to_minio(
         Upload failures are logged but do not interrupt pipeline
         execution.
     """
-    bucket = os.getenv("INGEST_TELEMETRY_BUCKET", "cdm-ingest-job-logs")
+    bucket = os.getenv("INGEST_TELEMETRY_BUCKET", "cdm-telemetry-logs")
     endpoint_url = os.getenv("S3_ENDPOINT_URL")
     access_key = os.getenv("S3_ACCESS_KEY")
     secret_key = os.getenv("S3_SECRET_KEY")
